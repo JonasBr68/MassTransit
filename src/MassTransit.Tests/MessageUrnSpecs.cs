@@ -43,9 +43,15 @@ namespace MassTransit.Tests
         {
             var type1 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.TestFramework.Messages:PingMessage");
             Assert.AreEqual(typeof(PingMessage), type1);
-
-
         }
+
+        [Test]
+        public void GetTypeFromSimpleMessageUrnMissingType()
+        {
+            var type1 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.TestFramework.Messages:MissingMessage");
+            Assert.IsNull(type1);
+        }
+
         [Test]
         public void GetTypeFromGenericWithNestedTypeMessageUrn()
         {
@@ -55,12 +61,48 @@ namespace MassTransit.Tests
         }
 
         [Test]
+        public void GetTypeFromGenericWithNestedTypeMessageUrnMissingNestedType()
+        {
+            var type2 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.Tests:G[[MassTransit.Tests:MessageUrnSpecs+Z]]");
+            Assert.IsNull(type2);
+
+        }
+
+        [Test]
+        public void GetTypeFromGenericWithNestedTypeMessageUrnMissingGenericType()
+        {
+            var type2 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.Tests:Z[[MassTransit.Tests:MessageUrnSpecs+X]]");
+            Assert.IsNull(type2);
+        }
+
+        [Test]
         public void GetTypeFromGenericWithMultipleNestedTypesMessageUrn()
         {
             var type2 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.Tests:GM[[MassTransit.Tests:MessageUrnSpecs+X],[MassTransit.Tests:MessageUrnSpecs+X]]");
             Assert.AreEqual(typeof(GM<X,X>), type2);
-
         }
+
+        [Test]
+        public void GetTypeFromGenericWithMultipleNestedTypesMessageUrnOneMissingNestedType()
+        {
+            var type2 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.Tests:GM[[MassTransit.Tests:MessageUrnSpecs+X],[MassTransit.Tests:MessageUrnSpecs+Z]]");
+            Assert.IsNull(type2);
+        }
+
+        [Test]
+        public void GetTypeFromMultiLevelGenericsTypeMessageUrn()
+        {
+            var type2 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.Tests:G[[MassTransit.Tests:G[[MassTransit.Tests:G[[MassTransit.Tests:MessageUrnSpecs+X]]]]]]");
+            Assert.AreEqual(typeof(G<G<G<X>>>), type2);
+        }
+
+        [Test]
+        public void GetTypeFromMultiLevelGenericsTypeMessageUrnMissingNestedType()
+        {
+            var type2 = MessageUrn.ForMessageUrnString("urn:message:MassTransit.Tests:G[[MassTransit.Tests:G[[MassTransit.Tests:G[[MassTransit.Tests:MessageUrnSpecs+Z]]]]]]");
+            Assert.IsNull(type2);
+        }
+
 
         [Test]
         public void SimpleMessage()

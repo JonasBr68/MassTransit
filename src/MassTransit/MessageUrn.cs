@@ -40,6 +40,9 @@ namespace MassTransit
             {
                 MessageUrn urn = new MessageUrn(urnString);
                 Type type = GetType(urn);
+                if (type == null)
+                    return null;
+
                 cached = _cache.GetOrAdd(type, _ => (Cached)Activator.CreateInstance(typeof(Cached<>).MakeGenericType(type)));
                 _urnTypeCache.TryAdd(cached.UrnString, cached);
             }
@@ -48,11 +51,14 @@ namespace MassTransit
         public static Type GetType(MessageUrn urn)
         {
             string urnTypeString = urn.GetUrnTypeString();
-            return GetType(urnTypeString);
+            return GetTypeFromTypeString(urnTypeString);
         }
-        public static Type GetType(string urnTypeString)
+        public static Type GetTypeFromTypeString(string urnTypeString)
         {
             var recipe = Deconstruct(urnTypeString);
+            if (recipe.Root == null)
+                return null;
+
             return BuildCompleteType(recipe);
         }
 
@@ -63,7 +69,10 @@ namespace MassTransit
                 if (!recipe.Root.IsGenericType)
                     throw new ArgumentException("Invalid TypeRecipe");
 
-                return recipe.Root.MakeGenericType(recipe.GenericTypeArguments.Select(t => BuildCompleteType(t)).ToArray());
+                var typeArguments = recipe.GenericTypeArguments.Select(t => BuildCompleteType(t));
+                if (typeArguments.Any(ta => ta == null))
+                    return null;
+                return recipe.Root.MakeGenericType(typeArguments.ToArray());
             }
             else
             {
@@ -72,7 +81,7 @@ namespace MassTransit
 
         }
 
-        public static Type GetType(string typeName, bool throwOnError)
+        public static Type GetLoadedType(string typeName, bool throwOnError)
         {
             if (_messageTypesCache.TryGetValue(typeName, out var foundType))
                 return foundType;
@@ -190,14 +199,14 @@ namespace MassTransit
                 int indexOfGenericsSeparator = rest.IndexOf('[');
                 if(indexOfGenericsSeparator == -1)
                 {
-                    return new TypeRecipe() { Root = GetType($"{ns}.{rest}", true) };
+                    return new TypeRecipe() { Root = GetLoadedType($"{ns}.{rest}", false) };
                 }
                 string genericName = rest.Substring(0, indexOfGenericsSeparator);
                 //rest = "G[[MassTransit.Tests:MessageUrnSpecs+X]]"
                 //GM[[MassTransit.Tests:MessageUrnSpecs+X],[MassTransit.Tests:MessageUrnSpecs+X]]
                 string[] nestedTypeStrings = rest.Substring(indexOfGenericsSeparator + 1, rest.Length - (indexOfGenericsSeparator + 2)).Split(',');
                 
-                return new TypeRecipe() { Root = GetType($"{ns}.{genericName}`{nestedTypeStrings.Length}", true), GenericTypeArguments = nestedTypeStrings.Select(s => Deconstruct(s.Substring(1, s.Length-2))).ToArray() };
+                return new TypeRecipe() { Root = GetLoadedType($"{ns}.{genericName}`{nestedTypeStrings.Length}", false), GenericTypeArguments = nestedTypeStrings.Select(s => Deconstruct(s.Substring(1, s.Length-2))).ToArray() };
             }
             else
             {
