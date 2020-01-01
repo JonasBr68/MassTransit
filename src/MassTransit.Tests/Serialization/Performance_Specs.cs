@@ -28,6 +28,7 @@ namespace MassTransit.Tests.Serialization
 
 
     [TestFixture(typeof(JsonMessageSerializer))]
+    [TestFixture(typeof(JsonStronglyTypedMessageDeserializer))]
     [TestFixture(typeof(BsonMessageSerializer))]
     [TestFixture(typeof(XmlMessageSerializer))]
     [TestFixture(typeof(EncryptedMessageSerializer))]
@@ -122,5 +123,70 @@ namespace MassTransit.Tests.Serialization
 
             Console.WriteLine("Deserialize: {0}ms, Rate: {1} m/s", timer.ElapsedMilliseconds, perSecond);
         }
+        [Test]
+        public void Just_how_fast_are_you_for_medium_sized_message()
+        {
+            var message = new SerializationTestMediumMessage();
+
+            for (int i = 0; i < 20000; i++)
+            {
+                var item = new SerializationTestMessage
+                {
+                    DecimalValue = 123.45m,
+                    LongValue = 098123213,
+                    BoolValue = true,
+                    ByteValue = 127,
+                    IntValue = 123,
+                    DateTimeValue = new DateTime(2008, 9, 8, 7, 6, 5, 4),
+                    TimeSpanValue = TimeSpan.FromSeconds(30),
+                    GuidValue = Guid.NewGuid(),
+                    StringValue = "Chris's Sample Code",
+                    DoubleValue = 1823.172,
+                };
+                message.Items.Add(item);
+            }
+            var sendContext = new InMemorySendContext<SerializationTestMediumMessage>(message);
+            ReceiveContext receiveContext = null;
+            //warm it up
+            for (int i = 0; i < 10; i++)
+            {
+                byte[] data = Serialize(sendContext);
+
+                var transportMessage = new InMemoryTransportMessage(Guid.NewGuid(), data, Serializer.ContentType.MediaType, TypeMetadataCache<SerializationTestMediumMessage>.ShortName);
+                receiveContext = new InMemoryReceiveContext(new Uri("loopback://localhost/input_queue"), transportMessage, null);
+
+                Deserialize<SerializationTestMediumMessage>(receiveContext);
+            }
+
+            Stopwatch timer = Stopwatch.StartNew();
+
+            const int iterations = 10;
+
+            for (int i = 0; i < iterations; i++)
+            {
+                Serialize(sendContext);
+            }
+
+            timer.Stop();
+
+            long perSecond = iterations * 1000 / timer.ElapsedMilliseconds;
+
+            Console.WriteLine("Serialize: {0}ms, Rate: {1} m/s", timer.ElapsedMilliseconds, perSecond);
+
+
+            timer = Stopwatch.StartNew();
+
+            for (int i = 0; i < iterations; i++)
+            {
+                Deserialize<SerializationTestMediumMessage>(receiveContext);
+            }
+
+            timer.Stop();
+
+            perSecond = iterations * 1000 / timer.ElapsedMilliseconds;
+
+            Console.WriteLine("Deserialize: {0}ms, Rate: {1} m/s", timer.ElapsedMilliseconds, perSecond);
+        }
+
     }
 }

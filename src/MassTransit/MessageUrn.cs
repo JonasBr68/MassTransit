@@ -53,6 +53,11 @@ namespace MassTransit
             string urnTypeString = urn.GetUrnTypeString();
             return GetTypeFromTypeString(urnTypeString);
         }
+        public Type GetTypeFromUrn()
+        {
+            return MessageUrn.GetType(this);
+        }
+
         public static Type GetTypeFromTypeString(string urnTypeString)
         {
             var recipe = Deconstruct(urnTypeString);
@@ -133,7 +138,7 @@ namespace MassTransit
         }
 
 
-        MessageUrn(string uriString)
+        internal MessageUrn(string uriString)
             : base(uriString)
         {
         }
