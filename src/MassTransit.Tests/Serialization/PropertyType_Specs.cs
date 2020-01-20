@@ -19,6 +19,7 @@ namespace MassTransit.Tests.Serialization
 
 
     [TestFixture(typeof(JsonMessageSerializer))]
+    [TestFixture(typeof(JsonStronglyTypedMessageDeserializer))]
     [TestFixture(typeof(BsonMessageSerializer))]
     [TestFixture(typeof(XmlMessageSerializer))]
     [TestFixture(typeof(EncryptedMessageSerializer))]
@@ -86,6 +87,7 @@ namespace MassTransit.Tests.Serialization
 
 
     [TestFixture(typeof(JsonMessageSerializer))]
+    [TestFixture(typeof(JsonStronglyTypedMessageDeserializer))]
     [TestFixture(typeof(BsonMessageSerializer))]
     [TestFixture(typeof(XmlMessageSerializer))]
     [TestFixture(typeof(EncryptedMessageSerializer))]

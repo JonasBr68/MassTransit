@@ -100,17 +100,25 @@ namespace MassTransit.Serialization
 
                 if (_supportedTypes.Any(x => typeUrn.Equals(x, StringComparison.OrdinalIgnoreCase)))
                 {
-                    object obj;
+                    
                     Type deserializeType = typeof(T);
-                    if (deserializeType.GetTypeInfo().IsInterface && TypeMetadataCache<T>.IsValidMessageType)
-                        deserializeType = TypeMetadataCache<T>.ImplementationType;
-
-                    using (JsonReader jsonReader = _messageToken.CreateReader())
+                    if (deserializeType.IsAssignableFrom(_envelope.Message?.GetType()))
                     {
-                        obj = _deserializer.Deserialize(jsonReader, deserializeType);
+                        _messageTypes[typeof(T)] = message = new MessageConsumeContext<T>(this, _envelope.Message as T);
                     }
+                    else
+                    {
+                        object obj;
+                        if (deserializeType.GetTypeInfo().IsInterface && TypeMetadataCache<T>.IsValidMessageType)
+                            deserializeType = TypeMetadataCache<T>.ImplementationType;
 
-                    _messageTypes[typeof(T)] = message = new MessageConsumeContext<T>(this, (T)obj);
+                        using (JsonReader jsonReader = _messageToken.CreateReader())
+                        {
+                            obj = _deserializer.Deserialize(jsonReader, deserializeType);
+                        }
+                        _messageTypes[typeof(T)] = message = new MessageConsumeContext<T>(this, (T)obj);
+                    }
+                    
                     return true;
                 }
 

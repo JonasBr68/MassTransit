@@ -38,8 +38,8 @@ namespace MassTransit
             Cached cached = null;
             if (!_urnTypeCache.TryGetValue(urnString, out cached))
             {
-                MessageUrn urn = new MessageUrn(urnString);
-                Type type = GetType(urn);
+                
+                Type type = GetTypeFromUrnString(urnString);
                 if (type == null)
                     return null;
 
@@ -51,14 +51,19 @@ namespace MassTransit
         public static Type GetType(MessageUrn urn)
         {
             string urnTypeString = urn.GetUrnTypeString();
-            return GetTypeFromTypeString(urnTypeString);
+            return ForMessageUrnString(urnTypeString);
         }
         public Type GetTypeFromUrn()
         {
             return MessageUrn.GetType(this);
         }
 
-        public static Type GetTypeFromTypeString(string urnTypeString)
+        public static Type GetTypeFromUrnString(string urnString)
+        {
+            var urnTypeString = urnString.Substring("urn:message:".Length);
+            return GetTypeFromTypeString(urnTypeString);
+        }
+            public static Type GetTypeFromTypeString(string urnTypeString)
         {
             var recipe = Deconstruct(urnTypeString);
             if (recipe.Root == null)
@@ -150,14 +155,15 @@ namespace MassTransit
 
         public string GetUrnTypeString()
         {
+            var absolutPath = AbsolutePath;
             if (!string.Equals("urn", Scheme, StringComparison.OrdinalIgnoreCase)
-                || !Segments[0].StartsWith("message:", StringComparison.OrdinalIgnoreCase)
-                || Segments.Length == 0)
+                || !absolutPath.StartsWith("message:", StringComparison.OrdinalIgnoreCase)
+                || absolutPath.Length == 0)
             {
                 throw new ArgumentException("Not a vaild MessageUrn!");
             }
 
-            return Segments[0].Substring("message:".Length);
+            return absolutPath.Substring("message:".Length);
 
         }
         public void Deconstruct(out string name, out string ns, out string assemblyName)

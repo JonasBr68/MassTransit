@@ -106,6 +106,17 @@ namespace MassTransit.Tests.Serialization
             return Return<T>(serializedMessageData);
         }
 
+        protected TOut SerializeAndReturn<TIn,TOut>(TIn obj)
+            where TIn : class
+            where TOut : class
+        {
+
+            var serializedMessageData = Serialize(obj);
+
+            return Return<TOut>(serializedMessageData);
+        }
+
+
         protected byte[] Serialize<T>(T obj)
             where T : class
         {

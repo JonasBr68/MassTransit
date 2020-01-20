@@ -25,6 +25,7 @@ namespace MassTransit.Tests.Serialization
 
 
     [TestFixture(typeof(JsonMessageSerializer))]
+    [TestFixture(typeof(JsonStronglyTypedMessageDeserializer))]
     [TestFixture(typeof(BsonMessageSerializer))]
     [TestFixture(typeof(XmlMessageSerializer))]
     [TestFixture(typeof(EncryptedMessageSerializer))]
@@ -45,6 +46,40 @@ namespace MassTransit.Tests.Serialization
 
             complaint.Equals(result).ShouldBe(true);
         }
+
+        [Test]
+        public void Should_create_a_proxy_for_multiple_interfaces()
+        {
+            var user = new UserImpl("Chris", "noone@nowhere.com");
+            BusinessComplaintAdded complaint = new BusinessComplaintAddedImpl(user, "No toilet paper", BusinessArea.Appearance, "MassTransit OSS")
+            {
+                Body = "There was no toilet paper in the stall, forcing me to use my treasured issue of .NET Developer magazine."
+            };
+
+            var result = SerializeAndReturn(complaint);
+
+            complaint.Equals(result).ShouldBe(true);
+        }
+
+        [Test]
+        public void Should_create_a_proxy_for_multiple_not_inherited_interfaces()
+        {
+            var user = new UserImpl("Chris", "noone@nowhere.com");
+            BusinessComplaintAddedAbstract complaint = BusinessComplaintAddedAbstractImplFactory.CreateImplementation(user, "No toilet paper", BusinessArea.Appearance, "MassTransit OSS", 68);
+            
+            complaint.Body = "There was no toilet paper in the stall, forcing me to use my treasured issue of .NET Developer magazine.";
+
+
+            ComplaintSeverity result = SerializeAndReturn< BusinessComplaintAddedAbstract, ComplaintSeverity>(complaint);
+
+            (complaint as ComplaintSeverity).Equals(result).ShouldBe(true);
+
+            BusinessComplaintAdded result2 = SerializeAndReturn<BusinessComplaintAddedAbstract, BusinessComplaintAdded>(complaint);
+
+            (complaint as ComplaintSeverity).Equals(result2).ShouldBe(true);
+
+        }
+
 
         [Test]
         public async Task Should_dispatch_an_interface_via_the_pipeline()
@@ -88,15 +123,44 @@ namespace MassTransit.Tests.Serialization
         BusinessArea Area { get; }
     }
 
+    public interface BusinessComplaintAdded : ComplaintAdded
+    {
+        string BusinessUnit { get; }
+    }
 
-    public enum BusinessArea
+        public enum BusinessArea
     {
         Unknown = 0,
         Appearance,
         Courtesy
     }
+    public interface ComplaintSeverity
+    {
+        int Severity { get; }
+    }
+    public abstract class BusinessComplaintAddedAbstract : BusinessComplaintAddedImpl, BusinessComplaintAdded, ComplaintSeverity
+    {
+        public BusinessComplaintAddedAbstract(User addedBy, string subject, BusinessArea area, string businessUnit, int severity)
+            : base(addedBy, subject, area, businessUnit)
+        {
+            Severity = severity;
+        }
+        public int Severity { get; set; }
+    }
+    public class BusinessComplaintAddedAbstractImplFactory
+    {
+        private class BusinessComplaintAddedAbstractImpl : BusinessComplaintAddedAbstract
+        {
+            public BusinessComplaintAddedAbstractImpl(User addedBy, string subject, BusinessArea area, string businessUnit, int severity) : base(addedBy, subject, area, businessUnit, severity)
+            {
+            }
+        }
 
-
+        public static BusinessComplaintAddedAbstract CreateImplementation(User addedBy, string subject, BusinessArea area, string businessUnit, int severity)
+        {
+            return new BusinessComplaintAddedAbstractImpl(addedBy, subject, area, businessUnit, severity);
+        }
+    }
     public interface User
     {
         string Name { get; }
@@ -147,6 +211,17 @@ namespace MassTransit.Tests.Serialization
                 return ((Name != null ? Name.GetHashCode() : 0) * 397) ^ (Email != null ? Email.GetHashCode() : 0);
             }
         }
+    }
+
+    public class BusinessComplaintAddedImpl : ComplaintAddedImpl, BusinessComplaintAdded
+    {
+        public BusinessComplaintAddedImpl(User addedBy, string subject, BusinessArea area, string businessUnit) : base(addedBy, subject, area)
+        {
+            BusinessUnit = businessUnit;
+        }
+        protected BusinessComplaintAddedImpl()
+        { }
+        public string BusinessUnit { get; set; }
     }
 
 

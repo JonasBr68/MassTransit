@@ -112,7 +112,7 @@ namespace MassTransit.Tests.Serialization
 
             timer = Stopwatch.StartNew();
 
-            for (int i = 0; i < 50000; i++)
+            for (int i = 0; i < iterations; i++)
             {
                 Deserialize<SerializationTestMessage>(receiveContext);
             }

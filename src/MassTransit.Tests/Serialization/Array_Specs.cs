@@ -23,6 +23,7 @@ namespace MassTransit.Tests.Serialization
 
 
         [TestFixture(typeof(JsonMessageSerializer))]
+        [TestFixture(typeof(JsonStronglyTypedMessageDeserializer))]
         public class A_null_array :
             SerializationTest
         {

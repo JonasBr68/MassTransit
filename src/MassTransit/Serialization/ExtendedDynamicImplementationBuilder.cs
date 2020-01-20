@@ -1,0 +1,151 @@
+﻿namespace MassTransit.Serialization
+{
+    using GreenPipes.Internals.Extensions;
+    using GreenPipes.Internals.Reflection;
+    using System;
+    using System.Collections.Concurrent;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Reflection;
+    using System.Reflection.Emit;
+
+    public interface IImplementationBuilderExt
+    {
+        Type GetImplementationType(List<Type> interfaceTypes);
+    }
+
+    public class ExtendedDynamicImplementationBuilder :
+    IImplementationBuilderExt
+    {
+        const MethodAttributes PropertyAccessMethodAttributes = MethodAttributes.Public
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig
+            | MethodAttributes.Final
+            | MethodAttributes.Virtual
+            | MethodAttributes.VtableLayoutMask;
+
+        readonly ConcurrentDictionary<string, ModuleBuilder> _moduleBuilders;
+        readonly string _proxyNamespaceSuffix = "GreenPipes.DynamicInternal" + Guid.NewGuid().ToString("N");
+        readonly ConcurrentDictionary<List<Type>, Lazy<Type>> _proxyTypes;
+
+        public ExtendedDynamicImplementationBuilder()
+        {
+            _moduleBuilders = new ConcurrentDictionary<string, ModuleBuilder>();
+
+            _proxyTypes = new ConcurrentDictionary<List<Type>, Lazy<Type>>();
+        }
+
+        public Type GetImplementationType(List<Type> interfaceTypes)
+        {
+            return _proxyTypes.GetOrAdd(interfaceTypes, x => new Lazy<Type>(() => CreateImplementation(x))).Value;
+        }
+
+        Type CreateImplementation(List<Type> interfaceTypes)
+        {
+            if (interfaceTypes.Any(interfaceType => !interfaceType.GetTypeInfo().IsInterface))
+                throw new ArgumentException("Proxies can only be created for interfaces: " + string.Join(", ", interfaceTypes.Select(interfaceType => interfaceType.Name)), nameof(interfaceTypes));
+
+            return GetModuleBuilderForType(interfaceTypes.First(), moduleBuilder => CreateTypeFromInterfaces(moduleBuilder, interfaceTypes));
+        }
+
+        Type CreateTypeFromInterfaces(ModuleBuilder builder, List<Type> interfaceTypes)
+        {
+            var typeName = "GreenPipes.DynamicInternal." +
+                string.Join("_",
+                interfaceTypes.Select(interfaceType =>
+                    (interfaceType.IsNested && interfaceType.DeclaringType != null
+                        ? $"{interfaceType.DeclaringType.Name}+{TypeCache.GetShortName(interfaceType)}"
+                        : TypeCache.GetShortName(interfaceType))
+                                    )
+                           );
+            try
+            {
+                var typeBuilder = builder.DefineType(typeName,
+                    TypeAttributes.Serializable | TypeAttributes.Class |
+                        TypeAttributes.Public | TypeAttributes.Sealed,
+                    typeof(object), interfaceTypes.ToArray());
+
+                typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+
+                IEnumerable<PropertyInfo> properties = interfaceTypes.SelectMany(interfaceType => interfaceType.GetAllProperties()).Distinct();
+                foreach (var property in properties)
+                {
+                    var fieldBuilder = typeBuilder.DefineField("field_" + property.Name, property.PropertyType,
+                        FieldAttributes.Private);
+
+                    var propertyBuilder = typeBuilder.DefineProperty(property.Name,
+                        property.Attributes | PropertyAttributes.HasDefault, property.PropertyType, null);
+
+                    var getMethod = GetGetMethodBuilder(property, typeBuilder, fieldBuilder);
+                    var setMethod = GetSetMethodBuilder(property, typeBuilder, fieldBuilder);
+
+                    propertyBuilder.SetGetMethod(getMethod);
+                    propertyBuilder.SetSetMethod(setMethod);
+                }
+
+                return typeBuilder.CreateTypeInfo().AsType();
+            }
+            catch (Exception ex)
+            {
+                string message = $"Exception creating proxy ({typeName}) for {string.Join(", ", interfaceTypes.Select(interfaceType => TypeCache.GetShortName(interfaceType)))}";
+
+                throw new InvalidOperationException(message, ex);
+            }
+        }
+
+        MethodBuilder GetGetMethodBuilder(PropertyInfo propertyInfo, TypeBuilder typeBuilder,
+            FieldBuilder fieldBuilder)
+        {
+            var getMethodBuilder = typeBuilder.DefineMethod("get_" + propertyInfo.Name,
+                PropertyAccessMethodAttributes,
+                propertyInfo.PropertyType,
+                Type.EmptyTypes);
+
+            var il = getMethodBuilder.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, fieldBuilder);
+            il.Emit(OpCodes.Ret);
+
+            return getMethodBuilder;
+        }
+
+        MethodBuilder GetSetMethodBuilder(PropertyInfo propertyInfo, TypeBuilder typeBuilder,
+            FieldBuilder fieldBuilder)
+        {
+            var setMethodBuilder = typeBuilder.DefineMethod("set_" + propertyInfo.Name,
+                PropertyAccessMethodAttributes,
+                null,
+                new[] { propertyInfo.PropertyType });
+
+            var il = setMethodBuilder.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Stfld, fieldBuilder);
+            il.Emit(OpCodes.Ret);
+
+            return setMethodBuilder;
+        }
+
+        TResult GetModuleBuilderForType<TResult>(Type interfaceType, Func<ModuleBuilder, TResult> callback)
+        {
+            var assemblyName = interfaceType.Namespace + _proxyNamespaceSuffix;
+
+            var builder = _moduleBuilders.GetOrAdd(assemblyName, name =>
+            {
+                const AssemblyBuilderAccess access = AssemblyBuilderAccess.RunAndCollect;
+
+#if NETCORE
+                var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(name), access);
+#else
+                var assemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(new AssemblyName(name), access);
+#endif
+
+                var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName);
+
+                return moduleBuilder;
+            });
+
+            return callback(builder);
+        }
+    }
+}
