@@ -5,7 +5,6 @@ namespace MassTransit.Transports
     using Context;
     using Metadata;
     using Microsoft.Extensions.Logging;
-    using Util;
 
 
     public static class ReceiveEndpointLoggingExtensions
@@ -14,23 +13,31 @@ namespace MassTransit.Transports
             "RECEIVE {InputAddress} {MessageId} {MessageType} {ConsumerType}({Duration})");
 
         static readonly LogMessage<Uri, Guid?, string, string, TimeSpan> _logConsumeFault = LogContext.Define<Uri, Guid?, string, string, TimeSpan>(
-            LogLevel.Error,
-            "R-FAULT {InputAddress} {MessageId} {MessageType} {ConsumerType}({Duration})");
+            LogLevel.Error, "R-FAULT {InputAddress} {MessageId} {MessageType} {ConsumerType}({Duration})");
 
-        static readonly LogMessage<Uri, Guid?, string, string> _logMoved = LogContext.Define<Uri, Guid?, string, string>(LogLevel.Information,
+        static readonly LogMessage<Uri, string, string, string> _logMoved = LogContext.Define<Uri, string, string, string>(LogLevel.Information,
             "MOVE {InputAddress} {MessageId} {DestinationAddress} {Reason}");
 
-        static readonly LogMessage<Uri, Guid?, TimeSpan> _logReceiveFault = LogContext.Define<Uri, Guid?, TimeSpan>(LogLevel.Error,
+        static readonly LogMessage<Uri, string, TimeSpan> _logReceiveFault = LogContext.Define<Uri, string, TimeSpan>(LogLevel.Error,
             "R-FAULT {InputAddress} {MessageId} {Duration}");
 
         static readonly LogMessage<Uri, Guid?, string> _logSent = LogContext.Define<Uri, Guid?, string>(LogLevel.Debug,
             "SEND {DestinationAddress} {MessageId} {MessageType}");
 
-        static readonly LogMessage<Uri, Guid?> _logSkipped = LogContext.Define<Uri, Guid?>(LogLevel.Debug,
+        static readonly LogMessage<Uri, Guid?, string> _logSendFault = LogContext.Define<Uri, Guid?, string>(LogLevel.Error,
+            "S-FAULT {DestinationAddress} {MessageId} {MessageType}");
+
+        static readonly LogMessage<Uri, string> _logSkipped = LogContext.Define<Uri, string>(LogLevel.Debug,
             "SKIP {InputAddress} {MessageId}");
 
-        static LogMessage<Uri, Guid?> _logRetry = LogContext.Define<Uri, Guid?>(LogLevel.Warning,
+        static readonly LogMessage<Uri, Guid?> _logRetry = LogContext.Define<Uri, Guid?>(LogLevel.Warning,
             "R-RETRY {InputAddress} {MessageId}");
+
+        static readonly LogMessage<Uri, string> _logFault = LogContext.Define<Uri, string>(LogLevel.Error,
+            "T-FAULT {InputAddress} {MessageId}");
+
+        static readonly LogMessage<Uri, Guid?, string, DateTime, Guid?> _logScheduled = LogContext.Define<Uri, Guid?, String, DateTime, Guid?>(LogLevel.Debug,
+            "SCHED {DestinationAddress} {MessageId} {MessageType} {DeliveryTime:G} {Token}");
 
         /// <summary>
         /// Log a skipped message that was moved to the dead-letter queue
@@ -82,23 +89,22 @@ namespace MassTransit.Transports
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void LogTransportFaulted(this ReceiveContext context, Exception exception)
+        {
+            _logFault(context.InputAddress, GetMessageId(context), exception);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void LogRetry(this ConsumeContext context, Exception exception)
         {
             _logRetry(context.ReceiveContext.InputAddress, context.MessageId, exception);
         }
 
-        public static void LogRetry<T>(this ConsumeContext<T> context, Exception exception)
-            where T : class
-        {
-            LogContext.Current?.Messages.Warning?.Log("R-RETRY {InputAddress} {MessageId} {MessageType} {Exception}", context.ReceiveContext.InputAddress,
-                context.MessageId, TypeMetadataCache<T>.ShortName, GetFaultMessage(exception));
-        }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void LogFaulted<T>(this SendContext<T> context, Exception exception)
             where T : class
         {
-            LogContext.Current?.Messages.Error?.Log("S-FAULT {DestinationAddress} {MessageId} {MessageType} {Exception}", context.DestinationAddress,
-                context.MessageId, TypeMetadataCache<T>.ShortName, GetFaultMessage(exception));
+            _logSendFault(context.DestinationAddress, context.MessageId, TypeMetadataCache<T>.ShortName);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -108,23 +114,23 @@ namespace MassTransit.Transports
             _logSent(context.DestinationAddress, context.MessageId, TypeMetadataCache<T>.ShortName);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void LogScheduled<T>(this SendContext<T> context, DateTime deliveryTime)
             where T : class
         {
-            LogContext.Current?.Messages.Debug?.Log("SCHED {DestinationAddress} {MessageId} {MessageType} {DeliveryTime:G} {Token}", context.DestinationAddress,
-                context.MessageId, TypeMetadataCache<T>.ShortName, deliveryTime, context.ScheduledMessageId?.ToString("D"));
+            _logScheduled(context.DestinationAddress, context.MessageId, TypeMetadataCache<T>.ShortName, deliveryTime, context.ScheduledMessageId);
         }
 
-        static Guid? GetMessageId(ReceiveContext context)
+        static string GetMessageId(ReceiveContext context)
         {
-            return context.TransportHeaders.Get<Guid>("MessageId");
-        }
-
-        static string GetFaultMessage(Exception exception)
-        {
-            var baseException = exception.GetBaseException() ?? exception;
-
-            return ExceptionUtil.GetMessage(baseException);
+            try
+            {
+                return context.GetMessageId()?.ToString() ?? context.TransportHeaders.Get<string>(MessageHeaders.TransportMessageId);
+            }
+            catch (Exception)
+            {
+                return default;
+            }
         }
     }
 }

@@ -3,8 +3,7 @@ namespace MassTransit.Azure.ServiceBus.Core.Topology.Topologies
     using System;
     using System.Collections.Generic;
     using Builders;
-    using Configuration;
-    using Configuration.Configurators;
+    using Configurators;
     using MassTransit.Topology;
     using MassTransit.Topology.Topologies;
     using Metadata;
@@ -35,7 +34,7 @@ namespace MassTransit.Azure.ServiceBus.Core.Topology.Topologies
 
         public override bool TryGetPublishAddress(Uri baseAddress, out Uri publishAddress)
         {
-            publishAddress = new ServiceBusEndpointAddress(baseAddress, _messageTopology.EntityName);
+            publishAddress = new ServiceBusEndpointAddress(new Uri(baseAddress.GetLeftPart(UriPartial.Authority)), _topicConfigurator.FullPath);
             return true;
         }
 

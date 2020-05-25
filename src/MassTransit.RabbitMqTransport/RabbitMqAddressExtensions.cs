@@ -1,7 +1,6 @@
 namespace MassTransit.RabbitMqTransport
 {
     using System;
-    using System.Linq;
     using System.Collections.Generic;
     using System.Globalization;
     using System.Net.Security;
@@ -11,7 +10,6 @@ namespace MassTransit.RabbitMqTransport
     using RabbitMQ.Client;
     using Topology;
     using Topology.Settings;
-    using Transport;
 
 
     public static class RabbitMqAddressExtensions
@@ -50,10 +48,10 @@ namespace MassTransit.RabbitMqTransport
                 RequestedChannelMax = settings.RequestedChannelMax
             };
 
-            if (settings.ClusterMembers != null && settings.ClusterMembers.Any())
+            if (settings.EndpointResolver != null)
             {
                 factory.HostName = null;
-                factory.EndpointResolverFactory = x => new SequentialEndpointResolver(settings.ClusterMembers);
+                factory.EndpointResolverFactory = x => settings.EndpointResolver;
             }
 
             if (settings.UseClientCertificateAsAuthenticationIdentity)
@@ -72,29 +70,9 @@ namespace MassTransit.RabbitMqTransport
                     factory.Password = settings.Password;
             }
 
-            factory.Ssl.Enabled = settings.Ssl;
-            factory.Ssl.Version = settings.SslProtocol;
-            factory.Ssl.AcceptablePolicyErrors = settings.AcceptablePolicyErrors;
-            factory.Ssl.ServerName = settings.SslServerName;
-            factory.Ssl.Certs = settings.ClientCertificate == null ? null : new X509Certificate2Collection {settings.ClientCertificate};
-            factory.Ssl.CertificateSelectionCallback = settings.CertificateSelectionCallback;
-            factory.Ssl.CertificateValidationCallback = settings.CertificateValidationCallback;
+            ApplySslOptions(settings, factory.Ssl);
 
-            if (string.IsNullOrWhiteSpace(factory.Ssl.ServerName))
-                factory.Ssl.AcceptablePolicyErrors |= SslPolicyErrors.RemoteCertificateNameMismatch;
-
-            if (string.IsNullOrEmpty(settings.ClientCertificatePath))
-            {
-                factory.Ssl.CertPath = "";
-                factory.Ssl.CertPassphrase = "";
-            }
-            else
-            {
-                factory.Ssl.CertPath = settings.ClientCertificatePath;
-                factory.Ssl.CertPassphrase = settings.ClientCertificatePassphrase;
-            }
-
-            factory.ClientProperties = factory.ClientProperties ?? new Dictionary<string, object>();
+            factory.ClientProperties ??= new Dictionary<string, object>();
 
             HostInfo hostInfo = HostMetadataCache.Host;
 
@@ -112,6 +90,31 @@ namespace MassTransit.RabbitMqTransport
                 factory.ClientProperties["assembly_version"] = hostInfo.AssemblyVersion;
 
             return factory;
+        }
+
+        public static void ApplySslOptions(this RabbitMqHostSettings settings, SslOption option)
+        {
+            option.Enabled = settings.Ssl;
+            option.Version = settings.SslProtocol;
+            option.AcceptablePolicyErrors = settings.AcceptablePolicyErrors;
+            option.ServerName = settings.SslServerName;
+            option.Certs = settings.ClientCertificate == null ? null : new X509Certificate2Collection {settings.ClientCertificate};
+            option.CertificateSelectionCallback = settings.CertificateSelectionCallback;
+            option.CertificateValidationCallback = settings.CertificateValidationCallback;
+
+            if (string.IsNullOrWhiteSpace(option.ServerName))
+                option.AcceptablePolicyErrors |= SslPolicyErrors.RemoteCertificateNameMismatch;
+
+            if (string.IsNullOrEmpty(settings.ClientCertificatePath))
+            {
+                option.CertPath = "";
+                option.CertPassphrase = "";
+            }
+            else
+            {
+                option.CertPath = settings.ClientCertificatePath;
+                option.CertPassphrase = settings.ClientCertificatePassphrase;
+            }
         }
 
         public static RabbitMqHostSettings GetHostSettings(this Uri address)

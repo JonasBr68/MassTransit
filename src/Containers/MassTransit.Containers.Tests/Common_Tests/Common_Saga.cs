@@ -1,15 +1,3 @@
-// Copyright 2007-2019 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the
-// License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the
-// specific language governing permissions and limitations under the License.
 namespace MassTransit.Containers.Tests.Common_Tests
 {
     using System;
@@ -83,15 +71,24 @@ namespace MassTransit.Containers.Tests.Common_Tests
             foundId.HasValue.ShouldBe(true);
         }
 
+        protected void ConfigureRegistration<T>(IRegistrationConfigurator<T> configurator)
+            where T : class
+        {
+            configurator.AddSaga<SimpleSaga>()
+                .InMemoryRepository();
+
+            configurator.AddBus(provider => BusControl);
+        }
+
         protected abstract ISagaRepository<T> GetSagaRepository<T>()
             where T : class, ISaga;
 
         protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
         {
-            ConfigureSaga(configurator);
+            configurator.ConfigureSaga<SimpleSaga>(Registration);
         }
 
-        protected abstract void ConfigureSaga(IInMemoryReceiveEndpointConfigurator configurator);
+        protected abstract IRegistration Registration { get; }
     }
 
 
@@ -114,14 +111,44 @@ namespace MassTransit.Containers.Tests.Common_Tests
             foundId.HasValue.ShouldBe(true);
         }
 
+        [Test]
+        public async Task Should_use_custom_endpoint_and_definition_together()
+        {
+            Guid sagaId = NewId.NextGuid();
+
+            var message = new FirstSagaMessage {CorrelationId = sagaId};
+
+            var sendEndpoint = await Bus.GetSendEndpoint(new Uri("loopback://localhost/custom-second-saga"));
+
+            await sendEndpoint.Send(message);
+
+            Guid? foundId = await GetSagaRepository<SecondSimpleSaga>().ShouldContainSaga(message.CorrelationId, TestTimeout);
+
+            foundId.HasValue.ShouldBe(true);
+        }
+
+        protected void ConfigureRegistration<T>(IRegistrationConfigurator<T> configurator)
+            where T : class
+        {
+            configurator.AddSaga<SimpleSaga>()
+                .Endpoint(e => e.Name = "custom-endpoint-name")
+                .InMemoryRepository();
+
+            configurator.AddSaga<SecondSimpleSaga>(typeof(SecondSimpleSagaDefinition))
+                .Endpoint(e => e.Temporary = true)
+                .InMemoryRepository();
+
+            configurator.AddBus(provider => BusControl);
+        }
+
         protected abstract ISagaRepository<T> GetSagaRepository<T>()
             where T : class, ISaga;
 
         protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
         {
-            ConfigureEndpoints(configurator);
+            configurator.ConfigureEndpoints(Registration);
         }
 
-        protected abstract void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator);
+        protected abstract IRegistration Registration { get; }
     }
 }

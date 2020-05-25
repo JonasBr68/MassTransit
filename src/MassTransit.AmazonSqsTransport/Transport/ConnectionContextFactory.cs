@@ -3,12 +3,12 @@
     using System;
     using System.Threading;
     using System.Threading.Tasks;
-    using Configuration.Configuration;
-    using Context;
+    using Configuration;
     using Contexts;
     using Exceptions;
     using GreenPipes;
     using GreenPipes.Agents;
+    using GreenPipes.Internals.Extensions;
     using Policies;
     using Topology;
     using Transports;
@@ -36,11 +36,11 @@
 
         IPipeContextAgent<ConnectionContext> IPipeContextFactory<ConnectionContext>.CreateContext(ISupervisor supervisor)
         {
-            IAsyncPipeContextAgent<ConnectionContext> asyncContext = supervisor.AddAsyncContext<ConnectionContext>();
+            var context = Task.Run(() => CreateConnection(supervisor), supervisor.Stopping);
 
-            Task.Run(() => CreateConnection(asyncContext, supervisor), supervisor.Stopping);
+            IPipeContextAgent<ConnectionContext> contextHandle = supervisor.AddContext(context);
 
-            return asyncContext;
+            return contextHandle;
         }
 
         IActivePipeContextAgent<ConnectionContext> IPipeContextFactory<ConnectionContext>.CreateActiveContext(ISupervisor supervisor,
@@ -49,22 +49,19 @@
             return supervisor.AddActiveContext(context, CreateSharedConnection(context.Context, cancellationToken));
         }
 
-        async Task<ConnectionContext> CreateSharedConnection(Task<ConnectionContext> context, CancellationToken cancellationToken)
+        static async Task<ConnectionContext> CreateSharedConnection(Task<ConnectionContext> context, CancellationToken cancellationToken)
         {
-            var connectionContext = await context.ConfigureAwait(false);
-
-            var sharedConnection = new SharedConnectionContext(connectionContext, cancellationToken);
-
-            return sharedConnection;
+            return context.IsCompletedSuccessfully()
+                ? new SharedConnectionContext(context.Result, cancellationToken)
+                : new SharedConnectionContext(await context.OrCanceled(cancellationToken).ConfigureAwait(false), cancellationToken);
         }
 
-        async Task<ConnectionContext> CreateConnection(IAsyncPipeContextAgent<ConnectionContext> asyncContext, IAgent supervisor)
+        async Task<ConnectionContext> CreateConnection(ISupervisor supervisor)
         {
             return await _connectionRetryPolicy.Retry(async () =>
             {
                 if (supervisor.Stopping.IsCancellationRequested)
                     throw new OperationCanceledException($"The connection is stopping and cannot be used: {_configuration.HostAddress}");
-
 
                 IConnection connection = null;
                 try
@@ -73,26 +70,17 @@
 
                     connection = _configuration.Settings.CreateConnection();
 
-                    var connectionContext = new AmazonSqsConnectionContext(connection, _configuration, _hostTopology, supervisor.Stopped);
-
-                    await asyncContext.Created(connectionContext).ConfigureAwait(false);
-
-                    return connectionContext;
+                    return new AmazonSqsConnectionContext(connection, _configuration, _hostTopology, supervisor.Stopped);
                 }
                 catch (OperationCanceledException)
                 {
-                    await asyncContext.CreateCanceled().ConfigureAwait(false);
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    LogContext.Error?.Log(ex, "Amazon SQS connection failed");
-
-                    await asyncContext.CreateFaulted(ex).ConfigureAwait(false);
-
                     throw new AmazonSqsConnectException("Connect failed: " + _configuration.Settings, ex);
                 }
-            });
+            }, supervisor.Stopping).ConfigureAwait(false);
         }
     }
 }

@@ -1,8 +1,9 @@
-﻿namespace MassTransit.AmazonSqsTransport.Configuration.Configuration
+﻿namespace MassTransit.AmazonSqsTransport.Configuration
 {
     using System;
     using Configurators;
     using Definition;
+    using GreenPipes;
     using MassTransit.Configurators;
     using Topology.Settings;
     using Topology.Topologies;
@@ -15,12 +16,13 @@
         IAmazonSqsHostConfiguration
     {
         readonly IAmazonSqsBusConfiguration _busConfiguration;
-        readonly IAmazonSqsTopologyConfiguration _topologyConfiguration;
         readonly AmazonSqsHostProxy _proxy;
+        readonly IAmazonSqsTopologyConfiguration _topologyConfiguration;
         AmazonSqsHostSettings _hostSettings;
 
         public AmazonSqsHostConfiguration(IAmazonSqsBusConfiguration busConfiguration, IAmazonSqsTopologyConfiguration
             topologyConfiguration)
+            : base(busConfiguration)
         {
             _busConfiguration = busConfiguration;
             _topologyConfiguration = topologyConfiguration;
@@ -38,6 +40,41 @@
         {
             get => _hostSettings;
             set => _hostSettings = value ?? throw new ArgumentNullException(nameof(value));
+        }
+
+        public void ApplyEndpointDefinition(IAmazonSqsReceiveEndpointConfigurator configurator, IEndpointDefinition definition)
+        {
+            configurator.ConfigureConsumeTopology = definition.ConfigureConsumeTopology;
+
+            if (definition.IsTemporary)
+            {
+                configurator.AutoDelete = true;
+                configurator.Durable = false;
+            }
+
+            if (definition.PrefetchCount.HasValue)
+                configurator.PrefetchCount = (ushort)definition.PrefetchCount.Value;
+
+            if (definition.ConcurrentMessageLimit.HasValue)
+            {
+                var concurrentMessageLimit = definition.ConcurrentMessageLimit.Value;
+
+                // if there is a prefetchCount, and it is greater than the concurrent message limit, we need a filter
+                if (!definition.PrefetchCount.HasValue || definition.PrefetchCount.Value > concurrentMessageLimit)
+                {
+                    configurator.UseConcurrencyLimit(concurrentMessageLimit);
+
+                    // we should determine a good value to use based upon the concurrent message limit
+                    if (definition.PrefetchCount.HasValue == false)
+                    {
+                        var calculatedPrefetchCount = concurrentMessageLimit * 12 / 10;
+
+                        configurator.PrefetchCount = (ushort)calculatedPrefetchCount;
+                    }
+                }
+            }
+
+            definition.Configure(configurator);
         }
 
         public IAmazonSqsReceiveEndpointConfiguration CreateReceiveEndpointConfiguration(string queueName,
@@ -58,11 +95,6 @@
                 throw new ArgumentNullException(nameof(endpointConfiguration));
 
             var configuration = new AmazonSqsReceiveEndpointConfiguration(this, settings, endpointConfiguration);
-
-            configuration.ConnectConsumerConfigurationObserver(_busConfiguration);
-            configuration.ConnectSagaConfigurationObserver(_busConfiguration);
-            configuration.ConnectHandlerConfigurationObserver(_busConfiguration);
-            configuration.ConnectActivityConfigurationObserver(_busConfiguration);
 
             configure?.Invoke(configuration);
 
@@ -89,7 +121,11 @@
         {
             var queueName = definition.GetEndpointName(endpointNameFormatter ?? DefaultEndpointNameFormatter.Instance);
 
-            ReceiveEndpoint(queueName, x => x.Apply(definition, configureEndpoint));
+            ReceiveEndpoint(queueName, configurator =>
+            {
+                ApplyEndpointDefinition(configurator, definition);
+                configureEndpoint?.Invoke(configurator);
+            });
         }
 
         public void ReceiveEndpoint(string queueName, Action<IAmazonSqsReceiveEndpointConfigurator> configureEndpoint)
@@ -106,9 +142,7 @@
             var host = new AmazonSqsHost(this, hostTopology);
 
             foreach (var endpointConfiguration in Endpoints)
-            {
                 endpointConfiguration.Build(host);
-            }
 
             _proxy.SetComplete(host);
 

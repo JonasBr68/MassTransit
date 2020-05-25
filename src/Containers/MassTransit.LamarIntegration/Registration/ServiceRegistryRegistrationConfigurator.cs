@@ -3,8 +3,11 @@ namespace MassTransit.LamarIntegration.Registration
     using System;
     using Lamar;
     using MassTransit.Registration;
+    using Mediator;
+    using Monitoring.Health;
     using ScopeProviders;
     using Scoping;
+    using Transports;
 
 
     public class ServiceRegistryRegistrationConfigurator :
@@ -17,6 +20,10 @@ namespace MassTransit.LamarIntegration.Registration
             : base(new LamarContainerRegistrar(registry))
         {
             _registry = registry;
+
+            registry.For<IBusRegistry>()
+                .Use<BusRegistry>()
+                .Singleton();
 
             registry.For<IConsumerScopeProvider>()
                 .Use(CreateConsumerScopeProvider)
@@ -42,13 +49,17 @@ namespace MassTransit.LamarIntegration.Registration
 
         ServiceRegistry IServiceRegistryConfigurator.Builder => _registry;
 
-        public void AddBus(Func<IServiceContext, IBusControl> busFactory)
+        public void AddBus(Func<IRegistrationContext<IServiceContext>, IBusControl> busFactory)
         {
-            IBusControl BusFactory(IServiceContext context)
+            ThrowIfAlreadyConfigured();
+
+            IBusControl BusFactory(IServiceContext serviceContext)
             {
-                var provider = context.GetInstance<IConfigurationServiceProvider>();
+                var provider = serviceContext.GetInstance<IConfigurationServiceProvider>();
 
                 ConfigureLogContext(provider);
+
+                IRegistrationContext<IServiceContext> context = GetRegistrationContext(serviceContext);
 
                 return busFactory(context);
             }
@@ -70,28 +81,78 @@ namespace MassTransit.LamarIntegration.Registration
                 .Scoped();
 
             _registry.For<IClientFactory>()
-                .Use(context => context.GetInstance<IBus>().CreateClientFactory())
+                .Use(context => ClientFactoryProvider(context.GetInstance<IConfigurationServiceProvider>(), context.GetInstance<IBus>()))
+                .Singleton();
+
+            _registry.For<BusHealth>()
+                .Use(context => new BusHealth(nameof(IBus)))
+                .Singleton();
+
+            _registry.For<IBusHealth>()
+                .Use<BusHealth>()
+                .Singleton();
+
+            _registry.For<IBusRegistryInstance>()
+                .Use<BusRegistryInstance>()
                 .Singleton();
         }
 
-        IConsumerScopeProvider CreateConsumerScopeProvider(IServiceContext context)
+        public void AddMediator(Action<IServiceContext, IReceiveEndpointConfigurator> configure = null)
+        {
+            ThrowIfAlreadyConfigured();
+
+            IMediator MediatorFactory(IServiceContext context)
+            {
+                var provider = context.GetInstance<IConfigurationServiceProvider>();
+
+                ConfigureLogContext(provider);
+
+                return Bus.Factory.CreateMediator(cfg =>
+                {
+                    configure?.Invoke(context, cfg);
+
+                    ConfigureMediator(cfg, provider);
+                });
+            }
+
+            _registry.For<IMediator>()
+                .Use(MediatorFactory)
+                .Singleton();
+
+            _registry.For<IClientFactory>()
+                .Use(context => context.GetInstance<IMediator>())
+                .Singleton();
+        }
+
+        static IConsumerScopeProvider CreateConsumerScopeProvider(IServiceContext context)
         {
             return new LamarConsumerScopeProvider(context.GetInstance<IContainer>());
         }
 
-        ISagaRepositoryFactory CreateSagaRepositoryFactory(IServiceContext context)
+        static ISagaRepositoryFactory CreateSagaRepositoryFactory(IServiceContext context)
         {
             return new LamarSagaRepositoryFactory(context.GetInstance<IContainer>());
         }
 
         static ISendEndpointProvider GetCurrentSendEndpointProvider(IServiceContext context)
         {
-            return context.TryGetInstance<ConsumeContext>() ?? (ISendEndpointProvider)context.GetInstance<IBus>();
+            return (ISendEndpointProvider)context.TryGetInstance<ConsumeContext>()
+                ?? new ScopedSendEndpointProvider<IContainer>(context.GetInstance<IBus>(), context.GetInstance<IContainer>());
         }
 
         static IPublishEndpoint GetCurrentPublishEndpoint(IServiceContext context)
         {
-            return context.TryGetInstance<ConsumeContext>() ?? (IPublishEndpoint)context.GetInstance<IBus>();
+            return (IPublishEndpoint)context.TryGetInstance<ConsumeContext>()
+                ?? new PublishEndpoint(new ScopedPublishEndpointProvider<IContainer>(context.GetInstance<IBus>(), context.GetInstance<IContainer>()));
+        }
+
+        IRegistrationContext<IServiceContext> GetRegistrationContext(IServiceContext context)
+        {
+            return new RegistrationContext<IServiceContext>(
+                CreateRegistration(context.GetInstance<IConfigurationServiceProvider>()),
+                context.GetInstance<BusHealth>(),
+                context
+            );
         }
     }
 }

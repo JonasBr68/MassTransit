@@ -1,6 +1,7 @@
 namespace MassTransit.Definition
 {
     using System;
+    using Registration;
     using Saga;
 
 
@@ -29,6 +30,8 @@ namespace MassTransit.Definition
             set => _endpointName = value;
         }
 
+        public IEndpointDefinition<TSaga> EndpointDefinition { private get; set; }
+
         /// <summary>
         /// Set the concurrent message limit for the saga, which limits how many saga instances are able to concurrently
         /// consume messages.
@@ -47,22 +50,52 @@ namespace MassTransit.Definition
             ConfigureSaga(endpointConfigurator, sagaConfigurator);
         }
 
+        public void Configure<T>(IReceiveEndpointConfigurator endpointConfigurator, ISagaMessageConfigurator<TSaga, T> sagaMessageConfigurator)
+            where T : class
+        {
+        }
+
         Type ISagaDefinition.SagaType => typeof(TSaga);
 
         string ISagaDefinition.GetEndpointName(IEndpointNameFormatter formatter)
         {
             return string.IsNullOrWhiteSpace(_endpointName)
-                ? _endpointName = formatter.Saga<TSaga>()
+                ? _endpointName = EndpointDefinition?.GetEndpointName(formatter) ?? formatter.Saga<TSaga>()
                 : _endpointName;
         }
 
         /// <summary>
-        /// Called when the saga is being configured on the endpoint. Configuration only applies to this saga, and does not apply to
+        /// Called when configuring the saga on the endpoint. Configuration only applies to this saga, and does not apply to
         /// the endpoint.
         /// </summary>
         /// <param name="endpointConfigurator">The receive endpoint configurator for the consumer</param>
         /// <param name="sagaConfigurator">The saga configurator</param>
         protected virtual void ConfigureSaga(IReceiveEndpointConfigurator endpointConfigurator, ISagaConfigurator<TSaga> sagaConfigurator)
+        {
+        }
+
+        /// <summary>
+        /// Configure the saga endpoint
+        /// </summary>
+        /// <param name="configure"></param>
+        protected void Endpoint(Action<ISagaEndpointRegistrationConfigurator<TSaga>> configure)
+        {
+            var configurator = new SagaEndpointRegistrationConfigurator<TSaga>();
+
+            configure?.Invoke(configurator);
+
+            EndpointDefinition = new SagaEndpointDefinition<TSaga>(configurator.Settings);
+        }
+
+        /// <summary>
+        /// Called when configuring the saga on the endpoint. Configuration only applies to this saga, and does not apply to
+        /// the endpoint.
+        /// </summary>
+        /// <param name="endpointConfigurator">The receive endpoint configurator for the consumer</param>
+        /// <param name="sagaMessageConfigurator">The saga message configurator</param>
+        protected virtual void ConfigureSagaMessage<T>(IReceiveEndpointConfigurator endpointConfigurator, ISagaMessageConfigurator<TSaga, T>
+            sagaMessageConfigurator)
+            where T : class
         {
         }
     }

@@ -15,14 +15,14 @@
 
         public InMemoryReceiveEndpointConfiguration(IInMemoryHostConfiguration hostConfiguration, string queueName,
             IInMemoryEndpointConfiguration endpointConfiguration)
-            : base(endpointConfiguration)
+            : base(hostConfiguration, endpointConfiguration)
         {
             _queueName = queueName ?? throw new ArgumentNullException(nameof(queueName));
             _endpointConfiguration = endpointConfiguration ?? throw new ArgumentNullException(nameof(endpointConfiguration));
 
             HostAddress = hostConfiguration?.HostAddress ?? throw new ArgumentNullException(nameof(hostConfiguration.HostAddress));
 
-            InputAddress = new Uri(hostConfiguration.HostAddress, queueName);
+            InputAddress = new InMemoryEndpointAddress(hostConfiguration.HostAddress, queueName);
         }
 
         IInMemoryReceiveEndpointConfigurator IInMemoryReceiveEndpointConfiguration.Configurator => this;

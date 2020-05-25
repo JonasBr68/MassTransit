@@ -2,6 +2,7 @@
 {
     using System;
     using System.Threading.Tasks;
+    using Context;
     using GreenPipes;
     using Metadata;
     using Microsoft.AspNetCore.SignalR;
@@ -13,18 +14,20 @@
         where TConsumer : class, IConsumer
         where THub : Hub
     {
-        readonly Func<HubLifetimeManager<THub>, TConsumer> _factoryMethod;
+        readonly Func<MassTransitHubLifetimeManager<THub>, TConsumer> _factoryMethod;
 
-        public HubLifetimeManager<THub> HubLifetimeManager { get; set; }
+        public MassTransitHubLifetimeManager<THub> HubLifetimeManager { get; set; }
 
-        public HubLifetimeManagerConsumerFactory(Func<HubLifetimeManager<THub>, TConsumer> factoryMethod)
+        public HubLifetimeManagerConsumerFactory(Func<MassTransitHubLifetimeManager<THub>, TConsumer> factoryMethod)
         {
             _factoryMethod = factoryMethod;
         }
 
-        public async Task Send<TMessage>(ConsumeContext<TMessage> context, IPipe<ConsumerConsumeContext<TConsumer, TMessage>> next) where TMessage : class
+        public async Task Send<TMessage>(ConsumeContext<TMessage> context, IPipe<ConsumerConsumeContext<TConsumer, TMessage>> next)
+            where TMessage : class
         {
-            if (HubLifetimeManager == null) throw new ArgumentNullException(nameof(HubLifetimeManager));
+            if (HubLifetimeManager == null)
+                throw new ArgumentNullException(nameof(HubLifetimeManager));
 
             TConsumer consumer = null;
             try
@@ -36,7 +39,7 @@
                     throw new ConsumerException($"Unable to resolve consumer type '{TypeMetadataCache<TConsumer>.ShortName}'.");
                 }
 
-                await next.Send(context.PushConsumer(consumer)).ConfigureAwait(false);
+                await next.Send(new ConsumerConsumeContextScope<TConsumer, TMessage>(context, consumer)).ConfigureAwait(false);
             }
             finally
             {

@@ -123,52 +123,62 @@ containerBuilder.AddMassTransit(r =>
 });
 ```
 
+### Saga Registration
 
-> TODO: Add saga, activity
+To add a state machine saga, use the _AddSagaStateMachine_ methods. For a consumer saga, use the _AddSaga_ methods.
 
+::: tip Important
+State machine sagas should be added before class-based sagas, and the class-based saga methods should not be used to add state machine sagas. This may be simplified in the future, but for now, be aware of this registration requirement.
+:::
 
+```cs
+containerBuilder.AddMassTransit(r =>
+{
+    // add a state machine saga, with the in-memory repository
+    r.AddSagaStateMachine<OrderStateMachine, OrderState>()
+        .InMemoryRepository();
 
-## Definition
+    // add a consumer saga with the in-memory repository
+    r.AddSaga<OrderSaga>()
+        .InMemoryRepository();
 
-In addition to registration, MassTransit supports an optional definition for the consumer, which can be specified (or discovered) via a class in the assembly. The syntax is under development, but some basic features are working today.
+    // add a saga by type, without a repository. The repository should be registered
+    // in the container elsewhere
+    r.AddSaga(typeof(OrderSaga));
 
-```csharp
-        public class SubmitOrderConsumerDefinition :
-            ConsumerDefinition<SubmitOrderConsumer>
-        {
-            public SubmitOrderConsumerDefinition()
-            {
-                // override the default endpoint name, for whatever reason
-                EndpointName = "ha-submit-order";
+    // add a state machine saga by type, including a saga definition for that saga
+    r.AddSagaStateMachine(typeof(OrderState), typeof(OrderStateDefinition))
 
-                // limit the number of messages consumed concurrently
-                ConcurrentMessageLimit = 4;
+    // add all saga state machines by type
+    r.AddSagaStateMachines(Assembly.GetExecutingAssembly());
 
-                // this is under development, doesn't do anything yet!
-                // but will eventually be used to define service endpoints
-                // in conductor.
-                Request<SubmitOrder>(x =>
-                {
-                    x.PartitionBy(m => m.CustomerId);
+    // add all sagas in the specified assembly
+    r.AddSagas(Assembly.GetExecutingAssembly());
 
-                    x.Publishes<OrderReceived>();
-                    x.Responds<OrderAccepted>();
-                    x.Responds<OrderRejected>();
-                    x.Sends<ProcessOrder>();
-                });
-            }
-
-            protected override void ConfigureConsumer(IReceiveEndpointConfigurator endpointConfigurator,
-                IConsumerConfigurator<DiscoveryPingConsumer> consumerConfigurator)
-            {
-                endpointConfigurator.UseMessageRetry(r => r.Interval(5,1000));
-                endpointConfigurator.UseInMemoryOutbox();
-            }
-        }
+    // add sagas from the namespace containing the type
+    r.AddSagasFromNamespaceContaining<OrderSaga>();
+    r.AddSagasFromNamespaceContaining(typeof(OrderSaga));
+});
 ```
 
-There are definitions for all consumer types, including sagas, activities, and saga state machines. They can be registered explicity using the `.AddConsumer(consumer type, consumerDefinitionType)` methods, or can be discovered using the scanning methods, such as `.AddConsumersFromNamespaceContaining<SubmitOrderConsumer>()`. 
+To add a saga registration and configure the consumer endpoint in the same expression, a definition can automatically be created.
 
+```cs
+containerBuilder.AddMassTransit(r =>
+{
+    r.AddSagaStateMachine<OrderStateMachine, OrderState>()
+        .NHibernateRepository()
+        .Endpoint(e =>
+        {
+            e.Name = "order-state";
+            e.ConcurrentMessageLimit = 8;
+        });
+});
+```
+
+Supported saga persistence storage engines are documented in the [saga documentation](/usage/sagas/persistence) section.
+
+> Endpoint configuration is available for all registration types, including consumers, sagas and Courier activities. Endpoint configuration can also be specifed in the definition, and overridden if specified in the .Add/.Endpoint methods.
 
 **Hey! Where is my container??**
 

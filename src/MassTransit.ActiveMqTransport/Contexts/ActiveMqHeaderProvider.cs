@@ -1,16 +1,4 @@
-﻿// Copyright 2007-2018 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//  
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the 
-// License at 
-// 
-//     http://www.apache.org/licenses/LICENSE-2.0 
-// 
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the 
-// specific language governing permissions and limitations under the License.
-namespace MassTransit.ActiveMqTransport.Contexts
+﻿namespace MassTransit.ActiveMqTransport.Contexts
 {
     using System;
     using System.Collections.Generic;
@@ -32,8 +20,8 @@ namespace MassTransit.ActiveMqTransport.Contexts
 
         public IEnumerable<KeyValuePair<string, object>> GetAll()
         {
-            yield return new KeyValuePair<string, object>("MessageId", _message.NMSMessageId);
-            yield return new KeyValuePair<string, object>("CorrelationId", _message.NMSCorrelationID);
+            yield return new KeyValuePair<string, object>(MessageHeaders.TransportMessageId, _message.NMSMessageId);
+            yield return new KeyValuePair<string, object>(nameof(MessageContext.CorrelationId), _message.NMSCorrelationID);
 
             foreach (var header in _adapter.GetAll())
                 yield return header;
@@ -41,13 +29,13 @@ namespace MassTransit.ActiveMqTransport.Contexts
 
         public bool TryGetHeader(string key, out object value)
         {
-            if ("MessageId".Equals(key, StringComparison.OrdinalIgnoreCase))
+            if (MessageHeaders.TransportMessageId.Equals(key, StringComparison.OrdinalIgnoreCase))
             {
                 value = _message.NMSMessageId;
                 return true;
             }
 
-            if ("CorrelationId".Equals(key, StringComparison.OrdinalIgnoreCase))
+            if (nameof(MessageContext.CorrelationId).Equals(key, StringComparison.OrdinalIgnoreCase))
             {
                 value = _message.NMSCorrelationID;
                 return true;

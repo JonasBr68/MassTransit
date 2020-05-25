@@ -2,6 +2,7 @@ namespace MassTransit.LamarIntegration.Registration
 {
     using System;
     using Automatonymous;
+    using Clients;
     using Courier;
     using Definition;
     using Lamar;
@@ -42,7 +43,7 @@ namespace MassTransit.LamarIntegration.Registration
         {
         }
 
-        public void RegisterStateMachineSaga<TStateMachine, TInstance>()
+        public void RegisterSagaStateMachine<TStateMachine, TInstance>()
             where TStateMachine : class, SagaStateMachine<TInstance>
             where TInstance : class, SagaStateMachineInstance
         {
@@ -51,6 +52,27 @@ namespace MassTransit.LamarIntegration.Registration
 
             _registry.AddSingleton<TStateMachine>();
             _registry.AddSingleton<SagaStateMachine<TInstance>>(provider => provider.GetRequiredService<TStateMachine>());
+        }
+
+        public void RegisterSagaRepository<TSaga>(Func<IConfigurationServiceProvider, ISagaRepository<TSaga>> repositoryFactory)
+            where TSaga : class, ISaga
+        {
+            _registry.AddSingleton(provider =>
+            {
+                var configurationServiceProvider = provider.GetRequiredService<IConfigurationServiceProvider>();
+
+                return repositoryFactory(configurationServiceProvider);
+            });
+        }
+
+        void IContainerRegistrar.RegisterSagaRepository<TSaga, TContext, TConsumeContextFactory, TRepositoryContextFactory>()
+        {
+            _registry.AddScoped<ISagaConsumeContextFactory<TContext, TSaga>, TConsumeContextFactory>();
+            _registry.AddScoped<ISagaRepositoryContextFactory<TSaga>, TRepositoryContextFactory>();
+
+            _registry.AddSingleton<LamarSagaRepositoryContextFactory<TSaga>>();
+            _registry.AddSingleton<ISagaRepository<TSaga>>(provider =>
+                new SagaRepository<TSaga>(provider.GetRequiredService<LamarSagaRepositoryContextFactory<TSaga>>()));
         }
 
         public void RegisterSagaDefinition<TDefinition, TSaga>()
@@ -69,6 +91,16 @@ namespace MassTransit.LamarIntegration.Registration
 
             _registry.For<IExecuteActivityScopeProvider<TActivity, TArguments>>()
                 .Use(CreateExecuteActivityScopeProvider<TActivity, TArguments>);
+        }
+
+        public void RegisterCompensateActivity<TActivity, TLog>()
+            where TActivity : class, ICompensateActivity<TLog>
+            where TLog : class
+        {
+            _registry.ForConcreteType<TActivity>();
+
+            _registry.For<ICompensateActivityScopeProvider<TActivity, TLog>>()
+                .Use(CreateCompensateActivityScopeProvider<TActivity, TLog>);
         }
 
         public void RegisterActivityDefinition<TDefinition, TActivity, TArguments, TLog>()
@@ -106,11 +138,13 @@ namespace MassTransit.LamarIntegration.Registration
             _registry.For<IRequestClient<T>>().Use(context =>
             {
                 var clientFactory = context.GetInstance<IClientFactory>();
-
                 var consumeContext = context.TryGetInstance<ConsumeContext>();
-                return consumeContext != null
-                    ? clientFactory.CreateRequestClient<T>(consumeContext, timeout)
-                    : clientFactory.CreateRequestClient<T>(timeout);
+
+                if (consumeContext != null)
+                    return clientFactory.CreateRequestClient<T>(consumeContext, timeout);
+
+                return new ClientFactory(new ScopedClientFactoryContext<IContainer>(clientFactory, context.GetInstance<IContainer>()))
+                    .CreateRequestClient<T>(timeout);
             }).Scoped();
         }
 
@@ -120,22 +154,39 @@ namespace MassTransit.LamarIntegration.Registration
             _registry.For<IRequestClient<T>>().Use(context =>
             {
                 var clientFactory = context.GetInstance<IClientFactory>();
-
                 var consumeContext = context.TryGetInstance<ConsumeContext>();
-                return consumeContext != null
-                    ? clientFactory.CreateRequestClient<T>(consumeContext, destinationAddress, timeout)
-                    : clientFactory.CreateRequestClient<T>(destinationAddress, timeout);
+
+                if (consumeContext != null)
+                    return clientFactory.CreateRequestClient<T>(consumeContext, destinationAddress, timeout);
+
+                return new ClientFactory(new ScopedClientFactoryContext<IContainer>(clientFactory, context.GetInstance<IContainer>()))
+                    .CreateRequestClient<T>(destinationAddress, timeout);
             }).Scoped();
         }
 
-        public void RegisterCompensateActivity<TActivity, TLog>()
-            where TActivity : class, ICompensateActivity<TLog>
-            where TLog : class
+        public void Register<T, TImplementation>()
+            where T : class
+            where TImplementation : class, T
         {
-            _registry.ForConcreteType<TActivity>();
+            _registry.TryAddScoped<T, TImplementation>();
+        }
 
-            _registry.For<ICompensateActivityScopeProvider<TActivity, TLog>>()
-                .Use(CreateCompensateActivityScopeProvider<TActivity, TLog>);
+        public void Register<T>(Func<IConfigurationServiceProvider, T> factoryMethod)
+            where T : class
+        {
+            _registry.TryAddScoped(provider => factoryMethod(provider.GetRequiredService<IConfigurationServiceProvider>()));
+        }
+
+        public void RegisterSingleInstance<T>(Func<IConfigurationServiceProvider, T> factoryMethod)
+            where T : class
+        {
+            _registry.TryAddSingleton(provider => factoryMethod(provider.GetRequiredService<IConfigurationServiceProvider>()));
+        }
+
+        public void RegisterSingleInstance<T>(T instance)
+            where T : class
+        {
+            _registry.TryAddSingleton(instance);
         }
 
         IExecuteActivityScopeProvider<TActivity, TArguments> CreateExecuteActivityScopeProvider<TActivity, TArguments>(IServiceContext context)

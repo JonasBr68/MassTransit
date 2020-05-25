@@ -1,15 +1,3 @@
-// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//  
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the 
-// License at 
-// 
-//     http://www.apache.org/licenses/LICENSE-2.0 
-// 
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the 
-// specific language governing permissions and limitations under the License.
 namespace MassTransit.Topology.Topologies
 {
     using System;
@@ -46,24 +34,31 @@ namespace MassTransit.Topology.Topologies
 
         public void Apply(ITopologyPipeBuilder<ConsumeContext<TMessage>> builder)
         {
-            ITopologyPipeBuilder<ConsumeContext<TMessage>> delegatedBuilder = builder.CreateDelegatedBuilder();
-
-            foreach (IMessageConsumeTopology<TMessage> topology in _delegateTopologies)
-                topology.Apply(delegatedBuilder);
-
-            foreach (IMessageConsumeTopologyConvention<TMessage> convention in _conventions)
+            if (_delegateTopologies.Count > 0)
             {
-                if (convention.TryGetMessageConsumeTopology(out IMessageConsumeTopology<TMessage> topology))
+                ITopologyPipeBuilder<ConsumeContext<TMessage>> delegatedBuilder = builder.CreateDelegatedBuilder();
+
+                for (var index = 0; index < _delegateTopologies.Count; index++)
+                    _delegateTopologies[index].Apply(delegatedBuilder);
+            }
+
+            for (var index = 0; index < _conventions.Count; index++)
+            {
+                if (_conventions[index].TryGetMessageConsumeTopology(out IMessageConsumeTopology<TMessage> topology))
                     topology.Apply(builder);
             }
 
-            foreach (IMessageConsumeTopology<TMessage> topology in _topologies)
-                topology.Apply(builder);
+            for (var index = 0; index < _topologies.Count; index++)
+                _topologies[index].Apply(builder);
         }
 
-        public void AddConvention(IMessageConsumeTopologyConvention<TMessage> convention)
+        public bool TryAddConvention(IMessageConsumeTopologyConvention<TMessage> convention)
         {
+            if (_conventions.Any(x => x.GetType() == convention.GetType()))
+                return false;
+
             _conventions.Add(convention);
+            return true;
         }
 
         public void UpdateConvention<TConvention>(Func<TConvention, TConvention> update)
@@ -96,6 +91,12 @@ namespace MassTransit.Topology.Topologies
             var addedConvention = add();
             if (addedConvention != null)
                 _conventions.Add(addedConvention);
+        }
+
+        public bool TryAddConvention(IConsumeTopologyConvention convention)
+        {
+            return convention.TryGetMessageConsumeTopologyConvention(out IMessageConsumeTopologyConvention<TMessage> messageConsumeTopologyConvention)
+                && TryAddConvention(messageConsumeTopologyConvention);
         }
 
         public virtual IEnumerable<ValidationResult> Validate()

@@ -1,7 +1,7 @@
-﻿namespace MassTransit.AmazonSqsTransport.Configuration
+﻿namespace MassTransit.AmazonSqsTransport
 {
     using System;
-    using Topology.Configuration;
+    using Topology;
 
 
     public interface IAmazonSqsBusFactoryConfigurator :

@@ -7,7 +7,7 @@
     using GreenPipes;
     using Pipeline;
     using Settings;
-    using Topology.Configuration;
+    using Topology;
     using Transport;
     using Transports;
 
@@ -32,12 +32,13 @@
 
             _settings.QueueConfigurator.BasePath = hostConfiguration.BasePath;
 
-            SubscribeMessageTopics = true;
-
             _inputAddress = new Lazy<Uri>(FormatInputAddress);
         }
 
-        public bool SubscribeMessageTopics { get; set; }
+        public bool SubscribeMessageTopics
+        {
+            set => ConfigureConsumeTopology = value;
+        }
 
         public ReceiveSettings Settings => _settings;
 
@@ -93,7 +94,7 @@
         {
             base.SelectBasicTier();
 
-            SubscribeMessageTopics = false;
+            ConfigureConsumeTopology = false;
         }
 
         Uri FormatInputAddress()
@@ -120,7 +121,7 @@
 
             var receiveEndpointContext = builder.CreateReceiveEndpointContext();
 
-            NamespacePipeConfigurator.UseFilter(new ConfigureTopologyFilter<ReceiveSettings>(_settings, receiveEndpointContext.BrokerTopology,
+            ClientPipeConfigurator.UseFilter(new ConfigureTopologyFilter<ReceiveSettings>(_settings, receiveEndpointContext.BrokerTopology,
                 _settings.RemoveSubscriptions, host.Stopping));
 
             CreateReceiveEndpoint(host, receiveEndpointContext);
@@ -140,11 +141,9 @@
             return new BrokeredMessageDeadLetterTransport(CreateSendEndpointContextSupervisor(host, settings));
         }
 
-        protected override IClientContextSupervisor CreateClientCache(IMessagingFactoryContextSupervisor messagingFactoryContextSupervisor,
-            INamespaceContextSupervisor namespaceContextSupervisor)
+        protected override IClientContextSupervisor CreateClientContextSupervisor(IConnectionContextSupervisor supervisor)
         {
-            return new ClientContextSupervisor(new QueueClientContextFactory(messagingFactoryContextSupervisor, namespaceContextSupervisor,
-                MessagingFactoryPipeConfigurator.Build(), NamespacePipeConfigurator.Build(), _settings));
+            return new ClientContextSupervisor(new QueueClientContextFactory(supervisor, _settings));
         }
     }
 }

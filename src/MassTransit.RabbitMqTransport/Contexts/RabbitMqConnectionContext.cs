@@ -4,12 +4,10 @@ namespace MassTransit.RabbitMqTransport.Contexts
     using System.Threading;
     using System.Threading.Tasks;
     using Configuration;
-    using Context;
     using GreenPipes;
     using RabbitMQ.Client;
     using Topology;
     using Transports;
-    using Util;
 
 
     public class RabbitMqConnectionContext :
@@ -18,7 +16,7 @@ namespace MassTransit.RabbitMqTransport.Contexts
         IAsyncDisposable
     {
         readonly IConnection _connection;
-        readonly LimitedConcurrencyLevelTaskScheduler _taskScheduler;
+        readonly ChannelExecutor _executor;
 
         public RabbitMqConnectionContext(IConnection connection, IRabbitMqHostConfiguration configuration, IRabbitMqHostTopology hostTopology,
             string description, CancellationToken cancellationToken)
@@ -28,12 +26,15 @@ namespace MassTransit.RabbitMqTransport.Contexts
 
             Description = description;
             HostAddress = configuration.HostAddress;
+
             PublisherConfirmation = configuration.PublisherConfirmation;
+            BatchSettings = configuration.BatchSettings;
+
             Topology = hostTopology;
 
             StopTimeout = TimeSpan.FromSeconds(30);
 
-            _taskScheduler = new LimitedConcurrencyLevelTaskScheduler(1);
+            _executor = new ChannelExecutor(1);
 
             connection.ConnectionShutdown += OnConnectionShutdown;
         }
@@ -42,17 +43,18 @@ namespace MassTransit.RabbitMqTransport.Contexts
         public string Description { get; }
         public Uri HostAddress { get; }
         public bool PublisherConfirmation { get; }
+
+        public BatchSettings BatchSettings { get; }
+
         public TimeSpan StopTimeout { get; }
+
         public IRabbitMqHostTopology Topology { get; }
 
         public async Task<IModel> CreateModel(CancellationToken cancellationToken)
         {
             using var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, cancellationToken);
 
-            var model = await Task.Factory.StartNew(() => _connection.CreateModel(), tokenSource.Token, TaskCreationOptions.None, _taskScheduler)
-                .ConfigureAwait(false);
-
-            return model;
+            return await _executor.Run(() => _connection.CreateModel(), tokenSource.Token).ConfigureAwait(false);
         }
 
         async Task<ModelContext> ConnectionContext.CreateModelContext(CancellationToken cancellationToken)
@@ -72,7 +74,7 @@ namespace MassTransit.RabbitMqTransport.Contexts
 
             TransportLogMessages.DisconnectedHost(Description);
 
-            return TaskUtil.Completed;
+            return _executor.DisposeAsync(cancellationToken);
         }
 
         void OnConnectionShutdown(object connection, ShutdownEventArgs reason)

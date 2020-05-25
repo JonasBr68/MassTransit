@@ -2,8 +2,7 @@ namespace MassTransit.AmazonSqsTransport.Topology.Settings
 {
     using System;
     using System.Collections.Generic;
-    using Builders;
-    using Configuration.Configurators;
+    using Configurators;
 
 
     public class TopicPublishSettings :
@@ -16,15 +15,6 @@ namespace MassTransit.AmazonSqsTransport.Topology.Settings
         }
 
         public Uri GetSendAddress(Uri hostAddress) => GetEndpointAddress(hostAddress);
-
-        public BrokerTopology GetBrokerTopology()
-        {
-            var builder = new PublishEndpointBrokerTopologyBuilder();
-
-            builder.Topic = builder.CreateTopic(EntityName, Durable, AutoDelete);
-
-            return builder.BuildBrokerTopology();
-        }
 
         IEnumerable<string> GetSettingStrings()
         {

@@ -1,9 +1,9 @@
 namespace MassTransit.AutofacIntegration
 {
     using Autofac;
+    using Context;
     using GreenPipes;
     using Metadata;
-    using Util;
 
 
     public static class AutofacLifetimeScopeExtensions
@@ -17,7 +17,7 @@ namespace MassTransit.AutofacIntegration
             if (consumer == null)
                 throw new ConsumerException($"Unable to resolve consumer type '{TypeMetadataCache<TConsumer>.ShortName}'.");
 
-            return consumeContext.PushConsumer(consumer);
+            return new ConsumerConsumeContextScope<TConsumer, TMessage>(consumeContext, consumer);
         }
 
         public static ConsumerConsumeContext<TConsumer, TMessage> GetConsumerScope<TConsumer, TMessage>(this ILifetimeScope lifetimeScope,
@@ -29,7 +29,21 @@ namespace MassTransit.AutofacIntegration
             if (consumer == null)
                 throw new ConsumerException($"Unable to resolve consumer type '{TypeMetadataCache<TConsumer>.ShortName}'.");
 
-            return consumeContext.PushConsumerScope(consumer, lifetimeScope);
+            return new ConsumerConsumeContextScope<TConsumer, TMessage>(consumeContext, consumer, lifetimeScope);
+        }
+
+        public static SendContext<TMessage> GetSendScope<TMessage>(this ILifetimeScope lifetimeScope,
+            SendContext<TMessage> sendContext)
+            where TMessage : class
+        {
+            return new SendContextScope<TMessage>(sendContext, lifetimeScope);
+        }
+
+        public static PublishContext<TMessage> GetPublishScope<TMessage>(this ILifetimeScope lifetimeScope,
+            PublishContext<TMessage> publishContext)
+            where TMessage : class
+        {
+            return new PublishContextScope<TMessage>(publishContext, lifetimeScope);
         }
 
         public static ILifetimeScope GetLifetimeScope<TMessage, TId>(this ILifetimeScopeRegistry<TId> registry, ConsumeContext<TMessage> context)
@@ -58,6 +72,22 @@ namespace MassTransit.AutofacIntegration
 
             // okay, give up, default it is
             return scopeId;
+        }
+
+        public static void ConfigureScope<T>(this ContainerBuilder builder, SendContext<T> context)
+            where T : class
+        {
+            builder.RegisterInstance(context)
+                .As<SendContext>()
+                .ExternallyOwned();
+        }
+
+        public static void ConfigureScope<T>(this ContainerBuilder builder, PublishContext<T> context)
+            where T : class
+        {
+            builder.RegisterInstance(context)
+                .As<PublishContext>()
+                .ExternallyOwned();
         }
 
         public static void ConfigureScope(this ContainerBuilder builder, ConsumeContext context)

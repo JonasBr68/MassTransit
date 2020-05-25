@@ -9,10 +9,10 @@ namespace MassTransit.RabbitMqTransport.Pipeline
     using GreenPipes;
     using GreenPipes.Agents;
     using GreenPipes.Internals.Extensions;
-    using Logging;
     using RabbitMQ.Client;
     using RabbitMQ.Client.Events;
     using Topology;
+    using Transports;
     using Transports.Metrics;
     using Util;
 
@@ -26,12 +26,11 @@ namespace MassTransit.RabbitMqTransport.Pipeline
         RabbitMqDeliveryMetrics
     {
         readonly TaskCompletionSource<bool> _deliveryComplete;
-        readonly Uri _inputAddress;
         readonly ModelContext _model;
         readonly ConcurrentDictionary<ulong, RabbitMqReceiveContext> _pending;
         readonly ReceiveSettings _receiveSettings;
         readonly RabbitMqReceiveEndpointContext _context;
-        readonly IDeliveryTracker _tracker;
+        readonly IReceivePipeDispatcher _dispatcher;
 
         string _consumerTag;
 
@@ -39,19 +38,18 @@ namespace MassTransit.RabbitMqTransport.Pipeline
         /// The basic consumer receives messages pushed from the broker.
         /// </summary>
         /// <param name="model">The model context for the consumer</param>
-        /// <param name="inputAddress">The input address for messages received by the consumer</param>
         /// <param name="context">The topology</param>
-        public RabbitMqBasicConsumer(ModelContext model, Uri inputAddress, RabbitMqReceiveEndpointContext context)
+        public RabbitMqBasicConsumer(ModelContext model, RabbitMqReceiveEndpointContext context)
         {
             _model = model;
-            _inputAddress = inputAddress;
             _context = context;
-
-            _tracker = new DeliveryTracker(HandleDeliveryComplete);
 
             _receiveSettings = model.GetPayload<ReceiveSettings>();
 
             _pending = new ConcurrentDictionary<ulong, RabbitMqReceiveContext>();
+
+            _dispatcher = context.CreateReceivePipeDispatcher();
+            _dispatcher.ZeroActivity += HandleDeliveryComplete;
 
             _deliveryComplete = TaskUtil.GetTask<bool>();
         }
@@ -112,72 +110,48 @@ namespace MassTransit.RabbitMqTransport.Pipeline
 
             LogContext.Debug?.Log(
                 "Consumer Model Shutdown: {InputAddress} - {ConsumerTag}, Concurrent Peak: {MaxConcurrentDeliveryCount}, {ReplyCode}-{ReplyText}",
-                _context.InputAddress, _consumerTag, _tracker.MaxConcurrentDeliveryCount, reason.ReplyCode, reason.ReplyText);
+                _context.InputAddress, _consumerTag, _dispatcher.MaxConcurrentDispatchCount, reason.ReplyCode, reason.ReplyText);
 
             _deliveryComplete.TrySetResult(false);
             SetCompleted(TaskUtil.Completed);
         }
 
-        async void IBasicConsumer.HandleBasicDeliver(string consumerTag, ulong deliveryTag, bool redelivered, string exchange,
-            string routingKey,
+        void IBasicConsumer.HandleBasicDeliver(string consumerTag, ulong deliveryTag, bool redelivered, string exchange, string routingKey,
             IBasicProperties properties, byte[] body)
         {
-            LogContext.Current = _context.LogContext;
-
-            if (IsStopping)
+            Task.Run(async () =>
             {
-                await WaitAndAbandonMessage(deliveryTag).ConfigureAwait(false);
-                return;
-            }
+                LogContext.Current = _context.LogContext;
 
-            var delivery = _tracker.BeginDelivery();
+                if (IsStopping && _receiveSettings.NoAck == false)
+                {
+                    await WaitAndAbandonMessage(deliveryTag).ConfigureAwait(false);
+                    return;
+                }
 
-            var context = new RabbitMqReceiveContext(_inputAddress, exchange, routingKey, _consumerTag, deliveryTag, body, redelivered, properties,
-                _context, _receiveSettings, _model, _model.ConnectionContext);
+                var context = new RabbitMqReceiveContext(exchange, routingKey, _consumerTag, deliveryTag, body, redelivered, properties, _context,
+                    _receiveSettings,
+                    _model, _model.ConnectionContext);
 
-            var activity = LogContext.IfEnabled(OperationName.Transport.Receive)?.StartActivity();
-            activity.AddReceiveContextHeaders(context);
-
-            try
-            {
                 if (!_pending.TryAdd(deliveryTag, context))
                     LogContext.Warning?.Log("Duplicate BasicDeliver: {DeliveryTag}", deliveryTag);
 
-                if (_context.ReceiveObservers.Count > 0)
-                    await _context.ReceiveObservers.PreReceive(context).ConfigureAwait(false);
-
-                await _context.ReceivePipe.Send(context).ConfigureAwait(false);
-
-                await context.ReceiveCompleted.ConfigureAwait(false);
-
-                _model.BasicAck(deliveryTag, false);
-
-                if (_context.ReceiveObservers.Count > 0)
-                    await _context.ReceiveObservers.PostReceive(context).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                if (_context.ReceiveObservers.Count > 0)
-                    await _context.ReceiveObservers.ReceiveFault(context, ex).ConfigureAwait(false);
+                var receiveLock = _receiveSettings.NoAck ? default : new RabbitMqReceiveLockContext(_model, deliveryTag);
 
                 try
                 {
-                    _model.BasicNack(deliveryTag, false, true);
+                    await _dispatcher.Dispatch(context, receiveLock).ConfigureAwait(false);
                 }
-                catch (Exception ackEx)
+                catch (Exception exception)
                 {
-                    LogContext.Error?.Log(ackEx, "Message NACK failed: {DeliveryTag}", deliveryTag);
+                    context.LogTransportFaulted(exception);
                 }
-            }
-            finally
-            {
-                activity?.Stop();
-
-                delivery.Dispose();
-
-                _pending.TryRemove(deliveryTag, out _);
-                context.Dispose();
-            }
+                finally
+                {
+                    _pending.TryRemove(deliveryTag, out _);
+                    context.Dispose();
+                }
+            });
         }
 
         IModel IBasicConsumer.Model => _model.Model;
@@ -186,11 +160,11 @@ namespace MassTransit.RabbitMqTransport.Pipeline
 
         string RabbitMqDeliveryMetrics.ConsumerTag => _consumerTag;
 
-        long DeliveryMetrics.DeliveryCount => _tracker.DeliveryCount;
+        long DeliveryMetrics.DeliveryCount => _dispatcher.DispatchCount;
 
-        int DeliveryMetrics.ConcurrentDeliveryCount => _tracker.MaxConcurrentDeliveryCount;
+        int DeliveryMetrics.ConcurrentDeliveryCount => _dispatcher.MaxConcurrentDispatchCount;
 
-        void HandleDeliveryComplete()
+        Task HandleDeliveryComplete()
         {
             if (IsStopping)
             {
@@ -198,6 +172,8 @@ namespace MassTransit.RabbitMqTransport.Pipeline
 
                 _deliveryComplete.TrySetResult(true);
             }
+
+            return TaskUtil.Completed;
         }
 
         async Task WaitAndAbandonMessage(ulong deliveryTag)
@@ -240,7 +216,7 @@ namespace MassTransit.RabbitMqTransport.Pipeline
         {
             await Task.WhenAll(context.Agents.Select(x => Completed)).OrCanceled(context.CancellationToken).ConfigureAwait(false);
 
-            if (_tracker.ActiveDeliveryCount > 0)
+            if (_dispatcher.ActiveDispatchCount > 0)
             {
                 try
                 {

@@ -3,6 +3,7 @@
     using System;
     using Configurators;
     using Definition;
+    using GreenPipes;
     using Hosting;
     using Topology;
     using Transport;
@@ -18,6 +19,7 @@
         HttpHostSettings _hostSettings;
 
         public HttpHostConfiguration(IHttpBusConfiguration busConfiguration, IHttpTopologyConfiguration topologyConfiguration)
+            : base(busConfiguration)
         {
             _busConfiguration = busConfiguration;
             _hostSettings = new ConfigurationHostSettings();
@@ -30,6 +32,16 @@
         {
             get => _hostSettings;
             set => _hostSettings = value ?? throw new ArgumentNullException(nameof(value));
+        }
+
+        public void ApplyEndpointDefinition(IHttpReceiveEndpointConfigurator configurator, IEndpointDefinition definition)
+        {
+            if (definition.ConcurrentMessageLimit.HasValue)
+            {
+                configurator.UseConcurrencyLimit(definition.ConcurrentMessageLimit.Value);
+            }
+
+            definition.Configure(configurator);
         }
 
         public IHttpReceiveEndpointConfiguration CreateReceiveEndpointConfiguration(string pathMatch, Action<IHttpReceiveEndpointConfigurator> configure)
@@ -46,11 +58,6 @@
                 throw new ArgumentNullException(nameof(pathMatch));
 
             var configuration = new HttpReceiveEndpointConfiguration(this, pathMatch, endpointConfiguration);
-
-            configuration.ConnectConsumerConfigurationObserver(_busConfiguration);
-            configuration.ConnectSagaConfigurationObserver(_busConfiguration);
-            configuration.ConnectHandlerConfigurationObserver(_busConfiguration);
-            configuration.ConnectActivityConfigurationObserver(_busConfiguration);
 
             configure?.Invoke(configuration);
 
@@ -77,7 +84,11 @@
         {
             var queueName = definition.GetEndpointName(endpointNameFormatter ?? DefaultEndpointNameFormatter.Instance);
 
-            ReceiveEndpoint(queueName, x => x.Apply(definition, configureEndpoint));
+            ReceiveEndpoint(queueName, x =>
+            {
+                ApplyEndpointDefinition(x, definition);
+                configureEndpoint?.Invoke(x);
+            });
         }
 
         public void ReceiveEndpoint(string queueName, Action<IHttpReceiveEndpointConfigurator> configureEndpoint)

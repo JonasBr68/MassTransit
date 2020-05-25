@@ -14,12 +14,14 @@ namespace MassTransit.Containers.Tests.Common_Tests
 {
     using System;
     using System.Threading.Tasks;
+    using Definition;
     using GreenPipes.Internals.Extensions;
     using NUnit.Framework;
     using Scenarios;
     using Shouldly;
     using TestFramework;
     using TestFramework.Messages;
+    using Util;
 
 
     public abstract class Common_Consumer :
@@ -49,10 +51,10 @@ namespace MassTransit.Containers.Tests.Common_Tests
 
         protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
         {
-            ConfigureConsumer(configurator);
+            configurator.ConfigureConsumer<SimpleConsumer>(Registration);
         }
 
-        protected abstract void ConfigureConsumer(IInMemoryReceiveEndpointConfigurator configurator);
+        protected abstract IRegistration Registration { get; }
     }
 
 
@@ -76,10 +78,114 @@ namespace MassTransit.Containers.Tests.Common_Tests
 
         protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
         {
-            ConfigureEndpoints(configurator);
+            configurator.ConfigureEndpoints(Registration);
         }
 
-        protected abstract void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator);
+        protected abstract IRegistration Registration { get; }
+    }
+
+
+    public abstract class Common_Consumers_Endpoint :
+        InMemoryTestFixture
+    {
+        [Test]
+        public async Task Should_receive_on_the_custom_endpoint()
+        {
+            var client = Bus.CreateRequestClient<PingMessage>(new Uri("queue:shared"));
+
+            await client.GetResponse<PongMessage>(new PingMessage());
+
+            var clientB = Bus.CreateRequestClient<Request>(new Uri("queue:shared"));
+
+            await clientB.GetResponse<Response>(new Request());
+        }
+
+        protected void ConfigureRegistration<T>(IRegistrationConfigurator<T> configurator)
+            where T : class
+        {
+            configurator.AddConsumer<ConsumerA>(typeof(ConsumerADefinition))
+                .Endpoint(x => x.Name = "shared");
+
+            configurator.AddConsumer<ConsumerB>(typeof(ConsumerBDefinition))
+                .Endpoint(x => x.Name = "shared");
+
+            configurator.AddConsumer<ConsumerC>(typeof(ConsumerCDefinition));
+
+            configurator.AddBus(provider => BusControl);
+        }
+
+        protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
+        {
+            configurator.ConfigureEndpoints(Registration);
+        }
+
+        protected abstract IRegistration Registration { get; }
+
+
+        class ConsumerA :
+            IConsumer<PingMessage>
+        {
+            public Task Consume(ConsumeContext<PingMessage> context)
+            {
+                return TaskUtil.Completed;
+            }
+        }
+
+
+        class ConsumerADefinition :
+            ConsumerDefinition<ConsumerA>
+        {
+        }
+
+
+        class ConsumerB :
+            IConsumer<Request>
+        {
+            public Task Consume(ConsumeContext<Request> context)
+            {
+                return context.RespondAsync(new Response());
+            }
+        }
+
+
+        class ConsumerBDefinition :
+            ConsumerDefinition<ConsumerB>
+        {
+            public ConsumerBDefinition()
+            {
+                Endpoint(x => x.Name = "broken");
+            }
+        }
+
+
+        class ConsumerC :
+            IConsumer<PingMessage>
+        {
+            public Task Consume(ConsumeContext<PingMessage> context)
+            {
+                return context.RespondAsync(new PongMessage(context.Message.CorrelationId));
+            }
+        }
+
+
+        class ConsumerCDefinition :
+            ConsumerDefinition<ConsumerC>
+        {
+            public ConsumerCDefinition()
+            {
+                Endpoint(e => e.Name = "shared");
+            }
+        }
+
+
+        class Request
+        {
+        }
+
+
+        class Response
+        {
+        }
     }
 
 
@@ -103,14 +209,12 @@ namespace MassTransit.Containers.Tests.Common_Tests
         [Test]
         public void Should_just_startup()
         {
-
         }
 
         protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
         {
-            ConfigureEndpoints(configurator);
+            configurator.ServiceInstance(x => x.ConfigureEndpoints(Registration));
         }
-
-        protected abstract void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator);
+        protected abstract IRegistration Registration { get; }
     }
 }

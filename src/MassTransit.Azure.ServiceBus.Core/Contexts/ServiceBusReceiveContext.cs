@@ -14,8 +14,8 @@
     {
         readonly Message _message;
 
-        public ServiceBusReceiveContext(Uri inputAddress, Message message, ReceiveEndpointContext receiveEndpointContext)
-            : base(inputAddress, message.SystemProperties.DeliveryCount > 1, receiveEndpointContext)
+        public ServiceBusReceiveContext(Message message, ReceiveEndpointContext receiveEndpointContext)
+            : base(message.SystemProperties.DeliveryCount > 1, receiveEndpointContext)
         {
             _message = message;
         }
@@ -27,6 +27,8 @@
         public string CorrelationId => _message.CorrelationId;
 
         public TimeSpan TimeToLive => _message.TimeToLive;
+
+        public DateTime ExpiresAt => _message.ExpiresAtUtc;
 
         public IDictionary<string, object> Properties => _message.UserProperties;
 
@@ -72,10 +74,7 @@
 
         protected override ContentType GetContentType()
         {
-            if (!string.IsNullOrWhiteSpace(_message.ContentType))
-                return new ContentType(_message.ContentType);
-
-            return base.GetContentType();
+            return !string.IsNullOrWhiteSpace(_message.ContentType) ? new ContentType(_message.ContentType) : base.GetContentType();
         }
     }
 }

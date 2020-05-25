@@ -16,8 +16,7 @@
     /// <summary>
     /// Send messages to an azure transport using the message sender.
     ///
-    /// May be sensible to create a IBatchSendTransport that allows multiple
-    /// messages to be sent as a single batch (perhaps using Tx support?)
+    /// May be sensible to create a IBatchSendTransport that allows multiple messages to be sent as a single batch (perhaps using Tx support?)
     /// </summary>
     public class ServiceBusSendTransport :
         Supervisor,
@@ -29,14 +28,14 @@
         {
             _context = context;
 
-            Add(context.Source);
+            Add(context.Supervisor);
         }
 
         Task ISendTransport.Send<T>(T message, IPipe<SendContext<T>> pipe, CancellationToken cancellationToken)
         {
-            var clientPipe = new SendPipe<T>(_context, message, pipe, cancellationToken);
+            var sendPipe = new SendPipe<T>(_context, message, pipe, cancellationToken);
 
-            return _context.Source.Send(clientPipe, cancellationToken);
+            return _context.Supervisor.Send(sendPipe, cancellationToken);
         }
 
         public ConnectHandle ConnectSendObserver(ISendObserver observer)
@@ -52,7 +51,7 @@
         }
 
 
-        struct SendPipe<T> :
+        class SendPipe<T> :
             IPipe<SendEndpointContext>
             where T : class
         {
@@ -75,17 +74,15 @@
 
                 var context = new AzureServiceBusSendContext<T>(_message, _cancellationToken);
 
-                var activity = LogContext.IfEnabled(OperationName.Transport.Send)?.StartActivity(new {_context.Address});
+                await _pipe.Send(context).ConfigureAwait(false);
+
+                CopyIncomingIdentifiersIfPresent(context);
+
+                var activity = LogContext.IfEnabled(OperationName.Transport.Send)?.StartSendActivity(context,
+                    (nameof(context.PartitionKey), context.PartitionKey),
+                    (nameof(context.SessionId), context.SessionId));
                 try
                 {
-                    await _pipe.Send(context).ConfigureAwait(false);
-
-                    activity.AddSendContextHeaders(context);
-
-                    CopyIncomingIdentifiersIfPresent(context);
-
-                    AddTransportHeaders(activity, context);
-
                     if (IsCancelScheduledSend(context, out var sequenceNumber))
                     {
                         await CancelScheduledSend(clientContext, sequenceNumber).ConfigureAwait(false);
@@ -196,7 +193,7 @@
                 brokeredMessage.UserProperties.Set(context.Headers);
 
                 if (context.TimeToLive.HasValue)
-                    brokeredMessage.TimeToLive = context.TimeToLive.Value;
+                    brokeredMessage.TimeToLive = context.TimeToLive > TimeSpan.Zero ? context.TimeToLive.Value : TimeSpan.FromSeconds(1);
 
                 if (context.MessageId.HasValue)
                     brokeredMessage.MessageId = context.MessageId.Value.ToString("N");
@@ -221,33 +218,22 @@
                 return brokeredMessage;
             }
 
-            static void CopyIncomingIdentifiersIfPresent(AzureServiceBusSendContext<T> sendContext)
+            static void CopyIncomingIdentifiersIfPresent(AzureServiceBusSendContext<T> context)
             {
-                if (sendContext.TryGetPayload<ConsumeContext>(out var consumeContext)
+                if (context.TryGetPayload<ConsumeContext>(out var consumeContext)
                     && consumeContext.TryGetPayload<BrokeredMessageContext>(out var brokeredMessageContext))
                 {
-                    if (sendContext.SessionId == null)
+                    if (context.SessionId == null)
                     {
                         if (brokeredMessageContext.ReplyToSessionId != null)
-                            sendContext.SessionId = brokeredMessageContext.ReplyToSessionId;
+                            context.SessionId = brokeredMessageContext.ReplyToSessionId;
                         else if (brokeredMessageContext.SessionId != null)
-                            sendContext.SessionId = brokeredMessageContext.SessionId;
+                            context.SessionId = brokeredMessageContext.SessionId;
                     }
 
-                    if (sendContext.PartitionKey == null && brokeredMessageContext.PartitionKey != null)
-                        sendContext.PartitionKey = brokeredMessageContext.PartitionKey;
+                    if (context.PartitionKey == null && brokeredMessageContext.PartitionKey != null)
+                        context.PartitionKey = brokeredMessageContext.PartitionKey;
                 }
-            }
-
-            static void AddTransportHeaders(StartedActivity? startedActivity, AzureServiceBusSendContext<T> context)
-            {
-                if (!startedActivity.HasValue)
-                    return;
-
-                var activity = startedActivity.Value;
-
-                activity.AddTag(nameof(context.PartitionKey), context.PartitionKey);
-                activity.AddTag(nameof(context.SessionId), context.SessionId);
             }
         }
     }

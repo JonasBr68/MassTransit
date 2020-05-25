@@ -3,6 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Net.Mime;
     using Automatonymous;
     using ConsumeConfigurators;
     using Courier;
@@ -18,7 +19,7 @@
         {
             Topology = topology;
 
-            Consume = new ConsumePipeConfiguration();
+            Consume = new ConsumePipeConfiguration(topology.Consume);
             Send = new SendPipeConfiguration(topology.Send);
             Publish = new PublishPipeConfiguration(topology.Publish);
             Receive = new ReceivePipeConfiguration();
@@ -30,7 +31,7 @@
         {
             Topology = topology;
 
-            Consume = new ConsumePipeConfiguration();
+            Consume = new ConsumePipeConfiguration(busConfiguration.Consume.Specification);
             Send = new SendPipeConfiguration(busConfiguration.Send.Specification);
             Publish = new PublishPipeConfiguration(busConfiguration.Publish.Specification);
             Receive = new ReceivePipeConfiguration();
@@ -48,6 +49,18 @@
             Receive = new ReceivePipeConfiguration();
 
             Serialization = parentConfiguration.Serialization.CreateSerializationConfiguration();
+        }
+
+        protected EndpointConfiguration(IEndpointConfiguration endpointConfiguration)
+        {
+            Topology = endpointConfiguration.Topology;
+
+            Consume = endpointConfiguration.Consume;
+            Send = endpointConfiguration.Send;
+            Publish = endpointConfiguration.Publish;
+            Receive = endpointConfiguration.Receive;
+
+            Serialization = endpointConfiguration.Serialization;
         }
 
         public bool AutoStart
@@ -188,13 +201,29 @@
             callback(Receive.ErrorConfigurator);
         }
 
+        public void SetMessageSerializer(SerializerFactory serializerFactory)
+        {
+            Serialization.SetSerializer(serializerFactory);
+        }
+
+        public void AddMessageDeserializer(ContentType contentType, DeserializerFactory deserializerFactory)
+        {
+            Serialization.AddDeserializer(contentType, deserializerFactory);
+        }
+
+        public void ClearMessageDeserializers()
+        {
+            Serialization.ClearDeserializers();
+        }
+
         public virtual IEnumerable<ValidationResult> Validate()
         {
             return Send.Specification.Validate()
                 .Concat(Publish.Specification.Validate())
                 .Concat(Consume.Specification.Validate())
                 .Concat(Receive.Specification.Validate())
-                .Concat(Topology.Validate());
+                .Concat(Topology.Validate())
+                .Concat(Serialization.Validate());
         }
 
         public IConsumePipeConfiguration Consume { get; }

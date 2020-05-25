@@ -10,15 +10,21 @@ namespace MassTransit
     /// Configure a receiving endpoint
     /// </summary>
     public interface IReceiveEndpointConfigurator :
-        IConsumePipeConfigurator,
-        ISendPipelineConfigurator,
-        IPublishPipelineConfigurator,
+        IEndpointConfigurator,
         IReceiveEndpointObserverConnector
     {
         /// <summary>
         /// Returns the input address of the receive endpoint
         /// </summary>
         Uri InputAddress { get; }
+
+        /// <summary>
+        /// If true (the default), the broker topology is configured using the message types consumed by
+        /// handlers, consumers, sagas, and activities. The implementation is broker-specific, but generally
+        /// supported enough to be implemented across the board. This method obsoletes the previous methods,
+        /// such as BindMessageTopics, BindMessageExchanges, SubscribeMessageTopics, etc.
+        /// </summary>
+        bool ConfigureConsumeTopology { set; }
 
         [EditorBrowsable(EditorBrowsableState.Never)]
         void AddEndpointSpecification(IReceiveEndpointSpecification configurator);

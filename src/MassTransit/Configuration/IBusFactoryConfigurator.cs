@@ -1,9 +1,7 @@
 namespace MassTransit
 {
     using System;
-    using System.ComponentModel;
     using System.Net.Mime;
-    using Builders;
     using BusConfigurators;
     using Topology;
 
@@ -24,13 +22,9 @@ namespace MassTransit
         IBusObserverConnector
     {
         IMessageTopologyConfigurator MessageTopology { get; }
-
+        IConsumeTopologyConfigurator ConsumeTopology { get; }
         ISendTopologyConfigurator SendTopology { get; }
-
         IPublishTopologyConfigurator PublishTopology { get; }
-
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        void AddBusFactorySpecification(IBusFactorySpecification specification);
 
         /// <summary>
         /// Configure the message topology for the message type (global across all bus instances of the same transport type)

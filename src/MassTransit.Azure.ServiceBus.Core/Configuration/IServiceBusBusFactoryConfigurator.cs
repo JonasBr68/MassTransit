@@ -1,7 +1,7 @@
 ﻿namespace MassTransit.Azure.ServiceBus.Core
 {
     using System;
-    using Topology.Configuration;
+    using Topology;
 
 
     public interface IServiceBusBusFactoryConfigurator :
@@ -40,6 +40,17 @@
         /// endpoint or you will screw things up.
         /// </summary>
         void OverrideDefaultBusEndpointQueueName(string value);
+
+        /// <summary>
+        /// Sets the namespace separator to tilde instead of slash, which is compatible with managed identities and RBAC.
+        /// This is automatically set when using a managed identity token provider.
+        /// </summary>
+        void SetNamespaceSeparatorToTilde();
+
+        /// <summary>
+        /// Sets the namespace separator to the specified string instead of slash.
+        /// </summary>
+        void SetNamespaceSeparatorTo(string separator);
 
         /// <summary>
         /// Configures a host

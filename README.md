@@ -39,7 +39,7 @@ MassTransit Nuget Packages
 | **Monitoring** |
 | [MassTransit.AspNetCore][AspNetCore.nuget] | 4.6.1 | 2.0 |
 | **Persistence** |
-| [MassTransit.Dapper][Dapper.nuget] | 4.6.1 | - |
+| [MassTransit.Dapper][Dapper.nuget] | 4.6.1 | 2.0 |
 | [MassTransit.DocumentDb][DocumentDb.nuget] | 4.6.1 | 2.0 |
 | [MassTransit.EntityFrameworkCore][EFCore.nuget] | 4.6.1 | 2.0 |
 | [MassTransit.EntityFramework][EF.nuget] | 4.6.1 | 2.1 |
@@ -59,7 +59,7 @@ MassTransit Nuget Packages
 ## Getting started with MassTransit
 
 In order to get started with MassTransit, you can have a look at the
-documentation, which is located at [http://masstransit-project.com/MassTransit](http://masstransit-project.com/MassTransit).
+documentation, which is located at [http://masstransit-project.com/](http://masstransit-project.com/).
 
 ### Simplest possible thing:
 
@@ -131,9 +131,15 @@ We support RabbitMQ and Azure Service Bus message brokers.
 
 [MassTransit Discuss](http://groups.google.com/group/masstransit-discuss)
 
+## Discord 
+
+Get help live at the MassTransit Discord server.
+
+[![alt Join the conversation](https://img.shields.io/discord/682238261753675864.svg "Discord")](https://discord.gg/rNpQgYn)
+
 ## Gitter Chat 
 
-While attendance is pretty light, there is a Gitter chat room available:
+While Discord is preferrred, the Gitter chat room is still available:
 
 [![Join the chat at https://gitter.im/MassTransit/MassTransit](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/MassTransit/MassTransit?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
@@ -150,7 +156,7 @@ enhancements and calls for help from people who forget to check back if they get
 
 ## Building from Source
 
- 1. Install the latest [.NET Core 3.0](https://dotnet.microsoft.com/download/dotnet-core/3.0) preview.
+ 1. Install the latest [.NET Core 3.1](https://dotnet.microsoft.com/download/dotnet-core/3.1) SDK.
  1. Clone the source down to your machine.<br/>
     ```bash
     git clone git://github.com/MassTransit/MassTransit.git
@@ -174,7 +180,7 @@ MassTransit is built on [AppVeyor](https://ci.appveyor.com/project/phatboyg/mass
 * .Net 4.6.1 or .NET Standard 2.0
 
 # CREDITS
-Logo Design by [The Agile Badger](http://www.theagilebadger.com)
+Logo Design by _The Agile Badger_
 
 [MassTransit.nuget]: https://www.nuget.org/packages/MassTransit
 [Host.nuget]: https://www.nuget.org/packages/MassTransit.Host

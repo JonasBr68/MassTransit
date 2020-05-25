@@ -1,25 +1,12 @@
-// Copyright 2007-2019 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the
-// License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the
-// specific language governing permissions and limitations under the License.
 namespace MassTransit.Registration
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
     using ConsumeConfigurators;
-    using Context;
     using Definition;
     using Metadata;
-    using Util;
+    using Saga;
 
 
     public class Registration :
@@ -52,7 +39,8 @@ namespace MassTransit.Registration
             consumer.Configure(configurator, _configurationServiceProvider);
         }
 
-        void IRegistration.ConfigureConsumer<T>(IReceiveEndpointConfigurator configurator, Action<IConsumerConfigurator<T>> configure)
+        public void ConfigureConsumer<T>(IReceiveEndpointConfigurator configurator, Action<IConsumerConfigurator<T>> configure)
+            where T : class, IConsumer
         {
             if (!_consumers.TryGetValue(typeof(T), out var consumer))
                 throw new ArgumentException($"The consumer type was not found: {TypeMetadataCache.GetShortName(typeof(T))}", nameof(T));
@@ -75,7 +63,8 @@ namespace MassTransit.Registration
             saga.Configure(configurator, _configurationServiceProvider);
         }
 
-        void IRegistration.ConfigureSaga<T>(IReceiveEndpointConfigurator configurator, Action<ISagaConfigurator<T>> configure)
+        public void ConfigureSaga<T>(IReceiveEndpointConfigurator configurator, Action<ISagaConfigurator<T>> configure)
+            where T : class, ISaga
         {
             if (!_sagas.TryGetValue(typeof(T), out var saga))
                 throw new ArgumentException($"The saga type was not found: {TypeMetadataCache.GetShortName(typeof(T))}", nameof(T));
@@ -84,7 +73,7 @@ namespace MassTransit.Registration
             saga.Configure(configurator, _configurationServiceProvider);
         }
 
-        void IRegistration.ConfigureSagas(IReceiveEndpointConfigurator configurator)
+        public void ConfigureSagas(IReceiveEndpointConfigurator configurator)
         {
             foreach (var saga in _sagas.Values)
                 saga.Configure(configurator, _configurationServiceProvider);
@@ -107,17 +96,30 @@ namespace MassTransit.Registration
             activity.Configure(executeEndpointConfigurator, compensateEndpointConfigurator, _configurationServiceProvider);
         }
 
-        public void ConfigureEndpoints<T>(T configurator, IEndpointNameFormatter endpointNameFormatter)
-            where T : IReceiveConfigurator
+        public void ConfigureActivityExecute(Type activityType, IReceiveEndpointConfigurator executeEndpointConfigurator, Uri compensateAddress)
+        {
+            if (!_activities.TryGetValue(activityType, out var activity))
+                throw new ArgumentException($"The activity type was not found: {TypeMetadataCache.GetShortName(activityType)}", nameof(activityType));
+
+            activity.ConfigureExecute(executeEndpointConfigurator, _configurationServiceProvider, compensateAddress);
+        }
+
+        public void ConfigureActivityCompensate(Type activityType, IReceiveEndpointConfigurator compensateEndpointConfigurator)
+        {
+            if (!_activities.TryGetValue(activityType, out var activity))
+                throw new ArgumentException($"The activity type was not found: {TypeMetadataCache.GetShortName(activityType)}", nameof(activityType));
+
+            activity.ConfigureCompensate(compensateEndpointConfigurator, _configurationServiceProvider);
+        }
+
+        public void ConfigureEndpoints<T>(IReceiveConfigurator<T> configurator, IEndpointNameFormatter endpointNameFormatter)
+            where T : IReceiveEndpointConfigurator
         {
             if (configurator == null)
                 throw new ArgumentNullException(nameof(configurator));
 
-            if (endpointNameFormatter == null)
-            {
-                endpointNameFormatter = _configurationServiceProvider.GetService<IEndpointNameFormatter>()
-                    ?? DefaultEndpointNameFormatter.Instance;
-            }
+            endpointNameFormatter ??= _configurationServiceProvider.GetService<IEndpointNameFormatter>()
+                ?? DefaultEndpointNameFormatter.Instance;
 
             var consumersByEndpoint = _consumers.Values
                 .Select(x => x.GetDefinition(_configurationServiceProvider))
@@ -147,6 +149,11 @@ namespace MassTransit.Registration
                 {
                     Definition = x,
                     Name = x.GetEndpointName(endpointNameFormatter)
+                })
+                .GroupBy(x => x.Name, (name, values) => new
+                {
+                    Name = name,
+                    Definition = values.Select(x => x.Definition).Combine()
                 });
 
             var endpointNames = consumersByEndpoint.Select(x => x.Key)
@@ -168,10 +175,10 @@ namespace MassTransit.Registration
                 from ea in eas.DefaultIfEmpty()
                 join ep in endpointsWithName on e equals ep.Name into eps
                 from ep in eps.Select(x => x.Definition)
-                    .DefaultIfEmpty(c?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).SingleOrDefault()
-                        ?? s?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).SingleOrDefault()
-                        ?? a?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).SingleOrDefault()
-                        ?? ea?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).SingleOrDefault()
+                    .DefaultIfEmpty(c?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).Combine()
+                        ?? s?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).Combine()
+                        ?? a?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).Combine()
+                        ?? ea?.Select(x => (IEndpointDefinition)new DelegateEndpointDefinition(e, x)).Combine()
                         ?? new NamedEndpointDefinition(e))
                 select new
                 {
@@ -190,17 +197,12 @@ namespace MassTransit.Registration
                     if (endpoint.Consumers != null)
                         foreach (var consumer in endpoint.Consumers)
                         {
-                            LogContext.Debug?.Log("Configuring consumer {ConsumerType} on {Endpoint}", TypeMetadataCache.GetShortName(consumer.ConsumerType),
-                                endpoint.Name);
-
                             ConfigureConsumer(consumer.ConsumerType, cfg);
                         }
 
                     if (endpoint.Sagas != null)
                         foreach (var saga in endpoint.Sagas)
                         {
-                            LogContext.Debug?.Log("Configuring saga {SagaType} on {Endpoint}", TypeMetadataCache.GetShortName(saga.SagaType), endpoint.Name);
-
                             ConfigureSaga(saga.SagaType, cfg);
                         }
 
@@ -214,12 +216,6 @@ namespace MassTransit.Registration
                             {
                                 configurator.ReceiveEndpoint(compensateDefinition, endpointNameFormatter, compensateEndpointConfigurator =>
                                 {
-                                    LogContext.Debug?.Log("Configuring receive endpoint {Endpoint}", ToEndpointString(compensateEndpointName,
-                                    compensateDefinition));
-
-                                    LogContext.Debug?.Log("Configuring activity {ActivityType} on {ExecuteEndpoint} / {CompensateEndpoint}",
-                                        TypeMetadataCache.GetShortName(activity.ActivityType), endpoint.Name, compensateEndpointName);
-
                                     ConfigureActivity(activity.ActivityType, cfg, compensateEndpointConfigurator);
                                 });
                             }
@@ -227,9 +223,6 @@ namespace MassTransit.Registration
                             {
                                 configurator.ReceiveEndpoint(compensateEndpointName, compensateEndpointConfigurator =>
                                 {
-                                    LogContext.Debug?.Log("Configuring activity {ActivityType} on {ExecuteEndpoint} / {CompensateEndpoint}",
-                                        TypeMetadataCache.GetShortName(activity.ActivityType), endpoint.Name, compensateEndpointName);
-
                                     ConfigureActivity(activity.ActivityType, cfg, compensateEndpointConfigurator);
                                 });
                             }
@@ -238,28 +231,10 @@ namespace MassTransit.Registration
                     if (endpoint.ExecuteActivities != null)
                         foreach (var activity in endpoint.ExecuteActivities)
                         {
-                            LogContext.Debug?.Log("Configuring activity {ActivityType} on {ExecuteEndpoint}",
-                                TypeMetadataCache.GetShortName(activity.ActivityType), endpoint.Name);
-
                             ConfigureExecuteActivity(activity.ActivityType, cfg);
                         }
                 });
             }
-        }
-
-        string ToEndpointString(string name, IEndpointDefinition definition)
-        {
-            return string.Join(", ", new[]
-            {
-                $"name: {name}",
-                definition.IsTemporary ? "temporary" : "",
-                definition.ConcurrentMessageLimit.HasValue
-                    ? $"concurrent-message-limit: {definition.ConcurrentMessageLimit}"
-                    : "",
-                definition.PrefetchCount.HasValue
-                    ? $"prefect-count: {definition.PrefetchCount}"
-                    : "",
-            }.Where(x => !string.IsNullOrWhiteSpace(x)));
         }
     }
 }

@@ -34,25 +34,31 @@ namespace MassTransit.RabbitMqTransport.Configuration
 
         public RabbitMqReceiveEndpointConfiguration(IRabbitMqHostConfiguration hostConfiguration, RabbitMqReceiveSettings settings,
             IRabbitMqEndpointConfiguration endpointConfiguration)
-            : base(endpointConfiguration)
+            : base(hostConfiguration, endpointConfiguration)
         {
             _hostConfiguration = hostConfiguration;
             _settings = settings;
 
             _endpointConfiguration = endpointConfiguration;
 
-            BindMessageExchanges = true;
-
             _managementPipe = new ManagementPipe();
             _connectionConfigurator = new PipeConfigurator<ConnectionContext>();
             _modelConfigurator = new PipeConfigurator<ModelContext>();
 
             _inputAddress = new Lazy<Uri>(FormatInputAddress);
+
+            if (settings.QueueName == RabbitMqExchangeNames.ReplyTo)
+            {
+                settings.ExchangeName = null;
+                settings.BindQueue = true;
+                settings.NoAck = true;
+            }
         }
 
-        public IRabbitMqReceiveEndpointConfigurator Configurator => this;
-
-        public bool BindMessageExchanges { get; set; }
+        public bool BindMessageExchanges
+        {
+            set => ConfigureConsumeTopology = value;
+        }
 
         public ReceiveSettings Settings => _settings;
 
@@ -94,11 +100,9 @@ namespace MassTransit.RabbitMqTransport.Configuration
                 consumerAgent = consumerFilter;
             }
 
-            IFilter<ConnectionContext> modelFilter = new ReceiveEndpointFilter(_modelConfigurator.Build());
+            IPipe<ModelContext> modelPipe = _modelConfigurator.Build();
 
-            _connectionConfigurator.UseFilter(modelFilter);
-
-            var transport = new RabbitMqReceiveTransport(host, _settings, _connectionConfigurator.Build(), receiveEndpointContext);
+            var transport = new RabbitMqReceiveTransport(host, _settings, modelPipe, receiveEndpointContext);
 
             transport.Add(consumerAgent);
 
@@ -216,7 +220,7 @@ namespace MassTransit.RabbitMqTransport.Configuration
             _settings.EnablePriority(maxPriority);
         }
 
-        public void ConnectManagementEndpoint(IManagementEndpointConfigurator management)
+        public void ConnectManagementEndpoint(IReceiveEndpointConfigurator management)
         {
             var consumer = new SetPrefetchCountManagementConsumer(_managementPipe, _settings.QueueName);
             management.Instance(consumer);

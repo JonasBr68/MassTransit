@@ -1,14 +1,19 @@
 ﻿namespace MassTransit.Internals.Reflection
 {
+    using System;
+
+
     public interface IWriteProperty<in T, in TProperty> :
         IWriteProperty<T>
+        where T : class
     {
         void Set(T entity, TProperty value);
     }
 
 
     public interface IWriteProperty<in T>
+        where T : class
     {
-        string Name { get; }
+        Type TargetType { get; }
     }
 }

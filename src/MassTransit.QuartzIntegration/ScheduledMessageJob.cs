@@ -1,16 +1,4 @@
-﻿// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the
-// License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the
-// specific language governing permissions and limitations under the License.
-namespace MassTransit.QuartzIntegration
+﻿namespace MassTransit.QuartzIntegration
 {
     using System;
     using System.Threading.Tasks;
@@ -47,6 +35,8 @@ namespace MassTransit.QuartzIntegration
                 var scheduled = new Scheduled();
 
                 await endpoint.Send(scheduled, sendPipe, context.CancellationToken).ConfigureAwait(false);
+
+                LogContext.Debug?.Log("Schedule Executed: {Key} {Schedule}", context.JobDetail.Key, context.Trigger.GetNextFireTimeUtc());
             }
             catch (Exception ex)
             {
@@ -75,18 +65,13 @@ namespace MassTransit.QuartzIntegration
 
         IPipe<SendContext> CreateMessageContext(Uri sourceAddress, string triggerKey)
         {
-            IPipe<SendContext> sendPipe = Pipe.New<SendContext>(x =>
+            IPipe<SendContext> sendPipe = Pipe.Execute<SendContext>(context =>
             {
-                x.UseExecute(context =>
-                {
-                    Guid? tokenId = ConvertIdToGuid(TokenId);
-                    if (tokenId.HasValue)
-                    {
-                        context.Headers.Set(MessageHeaders.SchedulingTokenId, tokenId.Value.ToString("N"));
-                    }
+                Guid? tokenId = ConvertIdToGuid(TokenId);
+                if (tokenId.HasValue)
+                    context.Headers.Set(MessageHeaders.SchedulingTokenId, tokenId.Value.ToString("N"));
 
-                    context.Headers.Set(MessageHeaders.QuartzTriggerKey, triggerKey);
-                });
+                context.Headers.Set(MessageHeaders.QuartzTriggerKey, triggerKey);
             });
 
             return new SerializedMessageContextAdapter(sendPipe, this, sourceAddress);

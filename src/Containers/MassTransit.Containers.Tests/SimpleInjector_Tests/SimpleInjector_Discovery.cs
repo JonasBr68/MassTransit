@@ -35,14 +35,17 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             _container.RegisterInMemorySagaRepository<DiscoveryPingState>();
         }
 
+        [Test]
+        public void Should_be_a_valid_container()
+        {
+            _container.Verify();
+        }
+
         protected override IRequestClient<PingMessage> GetRequestClient()
         {
             return _container.GetInstance<IRequestClient<PingMessage>>();
         }
 
-        protected override void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator)
-        {
-            configurator.ConfigureEndpoints(_container);
-        }
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
     }
 }

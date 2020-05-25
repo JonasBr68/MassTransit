@@ -6,7 +6,6 @@ namespace MassTransit.Azure.ServiceBus.Core.Hosting
     using ConsumeConfigurators;
     using EndpointConfigurators;
     using GreenPipes;
-    using MassTransit.Builders;
     using MassTransit.Hosting;
     using MassTransit.Saga;
     using MassTransit.Topology;
@@ -65,13 +64,9 @@ namespace MassTransit.Azure.ServiceBus.Core.Hosting
         }
 
         public IMessageTopologyConfigurator MessageTopology => _configurator.MessageTopology;
+        public IConsumeTopologyConfigurator ConsumeTopology => _configurator.ConsumeTopology;
         public ISendTopologyConfigurator SendTopology => _configurator.SendTopology;
         public IPublishTopologyConfigurator PublishTopology => _configurator.PublishTopology;
-
-        public void AddBusFactorySpecification(IBusFactorySpecification specification)
-        {
-            _configurator.AddBusFactorySpecification(specification);
-        }
 
         public void Message<T>(Action<IMessageTopologyConfigurator<T>> configureTopology)
             where T : class

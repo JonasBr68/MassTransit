@@ -1,7 +1,26 @@
 module.exports = {
   title: 'MassTransit',
   description: 'A free, open-source distributed application framework for .NET.',
-  plugins: ['@vuepress/active-header-links'],
+  head: [
+      ['link', { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png"}],
+      ['link', { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png"}],
+      ['link', { rel: "icon", type: "image/png", sizes: "16x16", href: "/favicon-16x16.png"}],
+      ['link', { rel: "manifest", href: "/site.webmanifest"}],
+      ['link', { rel: "mask-icon", href: "/safari-pinned-tab.svg", color: "#3a0839"}],
+      ['link', { rel: "shortcut icon", href: "/favicon.ico"}],
+      ['meta', { name: "msapplication-TileColor", content: "#3a0839"}],
+      ['meta', { name: "msapplication-config", content: "/browserconfig.xml"}],
+      ['meta', { name: "theme-color", content: "#ffffff"}],
+    ],  
+  plugins: [
+    '@vuepress/active-header-links',
+    '@vuepress/back-to-top',
+    [
+      '@vuepress/google-analytics', {
+        'ga': 'UA-156512132-1'
+      }      
+    ]
+  ],
   themeConfig: {
     logo: '/mt-logo-small.png',
     algolia: {
@@ -9,8 +28,8 @@ module.exports = {
       indexName: 'masstransit'
     },
     nav: [
-      { text: "Blog", link: "/updates/" },
-      { text: 'Gitter', link: 'https://gitter.im/MassTransit/MassTransit' },
+      { text: "Updates", link: "/updates/" },
+      { text: "Discord", link: "/discord" },
       { text: 'NuGet', link: 'https://nuget.org/packages/MassTransit' }
     ],
     sidebarDepth: 1,
@@ -20,6 +39,7 @@ module.exports = {
         path: '/getting-started/',
         collapsable: false,
         children: [
+          '/getting-started/live-coding',
           '/getting-started/upgrade-v6'
         ]
       },
@@ -52,7 +72,23 @@ module.exports = {
             collapsable: true,
             children: [
               '/usage/sagas/automatonymous',
-              '/usage/sagas/persistence'
+              '/usage/sagas/consumer-saga',
+              {
+                title: 'Persistence',
+                path: '/usage/sagas/persistence',
+                collapsable: false,
+                children: [
+                  '/usage/sagas/efcore',
+                  '/usage/sagas/dapper',
+                  '/usage/sagas/documentdb',
+                  '/usage/sagas/ef',
+                  '/usage/sagas/marten',
+                  '/usage/sagas/mongodb',
+                  '/usage/sagas/nhibernate',
+                  '/usage/sagas/redis',
+                  '/usage/sagas/session'
+                ]
+              }
             ]
           },
           {
@@ -60,6 +96,7 @@ module.exports = {
             path: '/usage/containers/',
             collapsable: true,
             children: [
+              ['/usage/containers/definitions', 'Definitions'],
               ['/usage/containers/msdi', 'Microsoft'],
               ['/usage/containers/autofac', 'Autofac'],
               ['/usage/containers/castlewindsor', 'Castle Windsor'],
@@ -86,6 +123,7 @@ module.exports = {
                   '/advanced/scheduling/azure-sb-scheduler',
                   '/advanced/scheduling/amazonsqs-scheduler',
                   '/advanced/scheduling/rabbitmq-delayed',
+                  '/advanced/scheduling/hangfire',
                   '/advanced/scheduling/redeliver'
                 ]
               },
@@ -109,17 +147,27 @@ module.exports = {
                   '/advanced/middleware/receive',
                   '/advanced/middleware/circuit-breaker',
                   '/advanced/middleware/rate-limiter',
-                  '/advanced/middleware/latest',
                   '/advanced/middleware/transactions',
                   '/advanced/middleware/custom'
                 ]
               },
+              {
+                title: 'Conductor',
+                path: '/advanced/conductor/',
+                collapsable: true,
+                children: [
+                  '/advanced/conductor/configuration'
+                ]
+              },
+              '/usage/mediator',
+              '/usage/containers/multibus',
               '/usage/message-data',
               {
                 title: 'Monitoring',
                 collapsable: true,
                 children: [
                   '/advanced/monitoring/diagnostic-source',
+                  '/advanced/monitoring/prometheus',
                   '/advanced/monitoring/applications-insights',
                   '/advanced/monitoring/perfcounters',
                 ]
@@ -166,6 +214,7 @@ module.exports = {
         children: [
           '/troubleshooting/common-gotchas',
           '/troubleshooting/show-config',
+          '/learn/analyzers',
           '/learn/samples',
           '/learn/videos',
           '/learn/courses',
@@ -174,11 +223,21 @@ module.exports = {
         ]
       },
       {
+        title: "Platform",
+        path: '/platform/',
+        collapsable: true,
+        children: [
+          '/platform/configuration'
+        ]
+      },
+      {
         title: "Reference",
         children: [
           '/architecture/packages',
           '/architecture/interoperability',
+          '/architecture/nservicebus',
           '/architecture/versioning',
+          '/architecture/newid',
           '/architecture/encrypted-messages',
           '/architecture/green-cache',
           '/architecture/history'

@@ -66,6 +66,16 @@ namespace MassTransit.RabbitMqTransport.Configurators
             _settings.CertificateValidationCallback = configurator.CertificateValidationCallback;
         }
 
+        public void ConfigureBatchPublish(Action<IBatchPublishConfigurator> configure)
+        {
+            _settings.ConfigureBatch(settings =>
+            {
+                var configurator = new BatchPublishConfigurator(settings);
+
+                configure?.Invoke(configurator);
+            });
+        }
+
         public void Heartbeat(ushort requestedHeartbeat)
         {
             _settings.Heartbeat = requestedHeartbeat;
@@ -83,11 +93,10 @@ namespace MassTransit.RabbitMqTransport.Configurators
 
         public void UseCluster(Action<IRabbitMqClusterConfigurator> configureCluster)
         {
-            var configurator = new RabbitMqClusterConfigurator();
+            var configurator = new RabbitMqClusterConfigurator(_settings);
             configureCluster(configurator);
 
-            _settings.ClusterMembers = configurator.ClusterMembers;
-            _settings.HostNameSelector = configurator.GetHostNameSelector();
+            _settings.EndpointResolver = configurator.GetEndpointResolver();
         }
 
         public void RequestedChannelMax(ushort value)

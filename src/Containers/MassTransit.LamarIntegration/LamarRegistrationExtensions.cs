@@ -2,6 +2,7 @@ namespace MassTransit
 {
     using System;
     using System.Linq;
+    using Conductor.Configuration;
     using ConsumeConfigurators;
     using Definition;
     using Lamar;
@@ -56,6 +57,7 @@ namespace MassTransit
                 .ToArray();
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure the endpoints for all defined consumer, saga, and activity types using an optional
         /// endpoint name formatter. If no endpoint name formatter is specified and an <see cref="IEndpointNameFormatter"/>
@@ -66,14 +68,16 @@ namespace MassTransit
         /// <param name="container">The container reference</param>
         /// <param name="endpointNameFormatter">Optional, the endpoint name formatter</param>
         /// <typeparam name="T">The bus factory type (depends upon the transport)</typeparam>
-        public static void ConfigureEndpoints<T>(this T configurator, IContainer container, IEndpointNameFormatter endpointNameFormatter = null)
-            where T : IReceiveConfigurator
+        public static void ConfigureEndpoints<T>(this IReceiveConfigurator<T> configurator, IContainer container,
+            IEndpointNameFormatter endpointNameFormatter = null)
+            where T : IReceiveEndpointConfigurator
         {
             var registration = container.GetInstance<IRegistration>();
 
             registration.ConfigureEndpoints(configurator, endpointNameFormatter);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure the endpoints for all defined consumer, saga, and activity types using an optional
         /// endpoint name formatter. If no endpoint name formatter is specified and an <see cref="IEndpointNameFormatter"/>
@@ -84,14 +88,106 @@ namespace MassTransit
         /// <param name="context">The container reference</param>
         /// <param name="endpointNameFormatter">Optional, the endpoint name formatter</param>
         /// <typeparam name="T">The bus factory type (depends upon the transport)</typeparam>
-        public static void ConfigureEndpoints<T>(this T configurator, IServiceContext context, IEndpointNameFormatter endpointNameFormatter = null)
-            where T : IReceiveConfigurator
+        public static void ConfigureEndpoints<T>(this IReceiveConfigurator<T> configurator, IServiceContext context,
+            IEndpointNameFormatter endpointNameFormatter = null)
+            where T : IReceiveEndpointConfigurator
         {
             var registration = context.GetInstance<IRegistration>();
 
             registration.ConfigureEndpoints(configurator, endpointNameFormatter);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
+        /// <summary>
+        /// Configure service endpoints for all defined consumer, saga, and activity types using an optional
+        /// endpoint name formatter. If no endpoint name formatter is specified, and an <see cref="IEndpointNameFormatter"/>
+        /// is registered in the container, it is resolved from the container. Otherwise, the <see cref="DefaultEndpointNameFormatter"/>
+        /// is used.
+        /// </summary>
+        /// <param name="configurator">The <see cref="IBusFactoryConfigurator"/> for the bus being configured</param>
+        /// <param name="container">The container reference</param>
+        /// <param name="options">The service instance options</param>
+        /// <typeparam name="TEndpointConfigurator">The ReceiveEndpointConfigurator type for the transport</typeparam>
+        public static void ConfigureServiceEndpoints<TEndpointConfigurator>(this IReceiveConfigurator<TEndpointConfigurator> configurator,
+            IContainer container, ServiceInstanceOptions options = null)
+            where TEndpointConfigurator : IReceiveEndpointConfigurator
+        {
+            var registration = container.GetInstance<IRegistration>();
+
+            options ??= new ServiceInstanceOptions();
+            if (options.EndpointNameFormatter is DefaultEndpointNameFormatter)
+            {
+                var formatter = container.TryGetInstance<IEndpointNameFormatter>();
+                if (formatter != null)
+                    options.SetEndpointNameFormatter(formatter);
+            }
+
+            configurator.ServiceInstance(options, instanceConfigurator =>
+            {
+                registration.ConfigureEndpoints(instanceConfigurator, instanceConfigurator.EndpointNameFormatter);
+            });
+        }
+
+        /// <summary>
+        /// Configure service endpoints for all defined consumer, saga, and activity types using an optional
+        /// endpoint name formatter. If no endpoint name formatter is specified, and an <see cref="IEndpointNameFormatter"/>
+        /// is registered in the container, it is resolved from the container. Otherwise, the <see cref="DefaultEndpointNameFormatter"/>
+        /// is used.
+        /// </summary>
+        /// <param name="configurator">The <see cref="IBusFactoryConfigurator"/> for the bus being configured</param>
+        /// <param name="registration">The container registration</param>
+        /// <param name="options">The service instance options</param>
+        /// <typeparam name="TEndpointConfigurator">The ReceiveEndpointConfigurator type for the transport</typeparam>
+        public static void ConfigureServiceEndpoints<TEndpointConfigurator>(this IReceiveConfigurator<TEndpointConfigurator> configurator,
+            IRegistrationContext<IServiceContext> registration, ServiceInstanceOptions options = null)
+            where TEndpointConfigurator : IReceiveEndpointConfigurator
+        {
+
+            options ??= new ServiceInstanceOptions();
+            if (options.EndpointNameFormatter is DefaultEndpointNameFormatter)
+            {
+                var formatter = registration.Container.TryGetInstance<IEndpointNameFormatter>();
+                if (formatter != null)
+                    options.SetEndpointNameFormatter(formatter);
+            }
+
+            configurator.ServiceInstance(options, instanceConfigurator =>
+            {
+                registration.ConfigureEndpoints(instanceConfigurator, instanceConfigurator.EndpointNameFormatter);
+            });
+        }
+        [Obsolete("Please use IRegistrationContext instead")]
+        /// <summary>
+        /// Configure service endpoints for all defined consumer, saga, and activity types using an optional
+        /// endpoint name formatter. If no endpoint name formatter is specified, and an <see cref="IEndpointNameFormatter"/>
+        /// is registered in the container, it is resolved from the container. Otherwise, the <see cref="DefaultEndpointNameFormatter"/>
+        /// is used.
+        /// </summary>
+        /// <param name="configurator">The <see cref="IBusFactoryConfigurator"/> for the bus being configured</param>
+        /// <param name="context">The container reference</param>
+        /// <param name="options">The service instance options</param>
+        /// <typeparam name="TEndpointConfigurator">The ReceiveEndpointConfigurator type for the transport</typeparam>
+        public static void ConfigureServiceEndpoints<TEndpointConfigurator>(this IReceiveConfigurator<TEndpointConfigurator> configurator,
+            IServiceContext context, ServiceInstanceOptions options = null)
+            where TEndpointConfigurator : IReceiveEndpointConfigurator
+        {
+            var registration = context.GetInstance<IRegistration>();
+
+            options ??= new ServiceInstanceOptions();
+            if (options.EndpointNameFormatter is DefaultEndpointNameFormatter)
+            {
+                var formatter = context.TryGetInstance<IEndpointNameFormatter>();
+                if (formatter != null)
+                    options.SetEndpointNameFormatter(formatter);
+            }
+
+            configurator.ServiceInstance(options, instanceConfigurator =>
+            {
+                registration.ConfigureEndpoints(instanceConfigurator, instanceConfigurator.EndpointNameFormatter);
+            });
+        }
+
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a consumer (or consumers) on the receive endpoint
         /// </summary>
@@ -106,6 +202,7 @@ namespace MassTransit
                 registration.ConfigureConsumer(consumerType, configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a consumer (or consumers) on the receive endpoint
         /// </summary>
@@ -120,6 +217,7 @@ namespace MassTransit
                 registration.ConfigureConsumer(consumerType, configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a consumer on the receive endpoint, with an optional configuration action
         /// </summary>
@@ -135,6 +233,7 @@ namespace MassTransit
             registration.ConfigureConsumer(configurator, configure);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a consumer on the receive endpoint, with an optional configuration action
         /// </summary>
@@ -150,6 +249,7 @@ namespace MassTransit
             registration.ConfigureConsumer(configurator, configure);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure all registered consumers on the receive endpoint
         /// </summary>
@@ -162,6 +262,7 @@ namespace MassTransit
             registration.ConfigureConsumers(configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure all registered consumers on the receive endpoint
         /// </summary>
@@ -174,6 +275,7 @@ namespace MassTransit
             registration.ConfigureConsumers(configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a saga (or sagas) on the receive endpoint
         /// </summary>
@@ -188,6 +290,7 @@ namespace MassTransit
                 registration.ConfigureSaga(sagaType, configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a saga (or sagas) on the receive endpoint
         /// </summary>
@@ -202,6 +305,7 @@ namespace MassTransit
                 registration.ConfigureSaga(sagaType, configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a saga on the receive endpoint, with an optional configuration action
         /// </summary>
@@ -217,6 +321,7 @@ namespace MassTransit
             registration.ConfigureSaga(configurator, configure);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure a saga on the receive endpoint, with an optional configuration action
         /// </summary>
@@ -232,6 +337,7 @@ namespace MassTransit
             registration.ConfigureSaga(configurator, configure);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure all registered sagas on the receive endpoint
         /// </summary>
@@ -244,6 +350,7 @@ namespace MassTransit
             registration.ConfigureSagas(configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure all registered sagas on the receive endpoint
         /// </summary>
@@ -256,6 +363,7 @@ namespace MassTransit
             registration.ConfigureSagas(configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure the execute activity on the receive endpoint
         /// </summary>
@@ -269,6 +377,7 @@ namespace MassTransit
             registration.ConfigureExecuteActivity(activityType, configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure the execute activity on the receive endpoint
         /// </summary>
@@ -282,6 +391,7 @@ namespace MassTransit
             registration.ConfigureExecuteActivity(activityType, configurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure an activity on two endpoints, one for execute, and the other for compensate
         /// </summary>
@@ -297,6 +407,7 @@ namespace MassTransit
             registration.ConfigureActivity(activityType, executeEndpointConfigurator, compensateEndpointConfigurator);
         }
 
+        [Obsolete("Please use IRegistrationContext instead")]
         /// <summary>
         /// Configure an activity on two endpoints, one for execute, and the other for compensate
         /// </summary>

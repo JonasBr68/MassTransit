@@ -4,7 +4,6 @@ namespace MassTransit
     using System.Threading;
     using System.Threading.Tasks;
     using Configuration;
-    using ConsumePipeSpecifications;
     using Context;
     using EndpointConfigurators;
     using Events;
@@ -21,10 +20,9 @@ namespace MassTransit
     {
         readonly IBusObserver _busObservable;
         readonly IConsumePipe _consumePipe;
-        readonly IConsumePipeSpecification _consumePipeSpecification;
         readonly IBusHostControl _host;
         readonly ILogContext _logContext;
-        readonly Lazy<IPublishEndpoint> _publishEndpoint;
+        readonly IPublishEndpoint _publishEndpoint;
         readonly IReceiveEndpoint _receiveEndpoint;
         Handle _busHandle;
 
@@ -32,7 +30,6 @@ namespace MassTransit
         {
             Address = endpointConfiguration.InputAddress;
             _consumePipe = endpointConfiguration.ConsumePipe;
-            _consumePipeSpecification = endpointConfiguration.Consume.Specification;
             _host = host;
             _busObservable = busObservable;
             _receiveEndpoint = endpointConfiguration.ReceiveEndpoint;
@@ -41,14 +38,12 @@ namespace MassTransit
 
             _logContext = LogContext.Current;
 
-            _publishEndpoint = new Lazy<IPublishEndpoint>(() => _receiveEndpoint.CreatePublishEndpoint(Address));
+            _publishEndpoint = new PublishEndpoint(_receiveEndpoint);
         }
 
         ConnectHandle IConsumePipeConnector.ConnectConsumePipe<T>(IPipe<ConsumeContext<T>> pipe)
         {
-            IPipe<ConsumeContext<T>> messagePipe = _consumePipeSpecification.GetMessageSpecification<T>().BuildMessagePipe(pipe);
-
-            var handle = _consumePipe.ConnectConsumePipe(messagePipe);
+            var handle = _consumePipe.ConnectConsumePipe(pipe);
 
             if (_busHandle != null && !_receiveEndpoint.Started.IsCompletedSuccessfully())
                 TaskUtil.Await(_receiveEndpoint.Started);
@@ -58,9 +53,7 @@ namespace MassTransit
 
         ConnectHandle IRequestPipeConnector.ConnectRequestPipe<T>(Guid requestId, IPipe<ConsumeContext<T>> pipe)
         {
-            IPipe<ConsumeContext<T>> messagePipe = _consumePipeSpecification.GetMessageSpecification<T>().BuildMessagePipe(pipe);
-
-            var handle = _consumePipe.ConnectRequestPipe(requestId, messagePipe);
+            var handle = _consumePipe.ConnectRequestPipe(requestId, pipe);
 
             if (_busHandle != null && !_receiveEndpoint.Started.IsCompletedSuccessfully())
                 TaskUtil.Await(_receiveEndpoint.Started);
@@ -70,52 +63,52 @@ namespace MassTransit
 
         Task IPublishEndpoint.Publish<T>(T message, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, cancellationToken);
+            return _publishEndpoint.Publish(message, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish<T>(T message, IPipe<PublishContext<T>> publishPipe, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, publishPipe, cancellationToken);
+            return _publishEndpoint.Publish(message, publishPipe, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish<T>(T message, IPipe<PublishContext> publishPipe, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, publishPipe, cancellationToken);
+            return _publishEndpoint.Publish(message, publishPipe, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish(object message, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, cancellationToken);
+            return _publishEndpoint.Publish(message, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish(object message, IPipe<PublishContext> publishPipe, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, publishPipe, cancellationToken);
+            return _publishEndpoint.Publish(message, publishPipe, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish(object message, Type messageType, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, messageType, cancellationToken);
+            return _publishEndpoint.Publish(message, messageType, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish(object message, Type messageType, IPipe<PublishContext> publishPipe, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(message, messageType, publishPipe, cancellationToken);
+            return _publishEndpoint.Publish(message, messageType, publishPipe, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish<T>(object values, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish<T>(values, cancellationToken);
+            return _publishEndpoint.Publish<T>(values, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish<T>(object values, IPipe<PublishContext<T>> publishPipe, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish(values, publishPipe, cancellationToken);
+            return _publishEndpoint.Publish(values, publishPipe, cancellationToken);
         }
 
         Task IPublishEndpoint.Publish<T>(object values, IPipe<PublishContext> publishPipe, CancellationToken cancellationToken)
         {
-            return _publishEndpoint.Value.Publish<T>(values, publishPipe, cancellationToken);
+            return _publishEndpoint.Publish<T>(values, publishPipe, cancellationToken);
         }
 
         public Uri Address { get; }
@@ -245,6 +238,12 @@ namespace MassTransit
         public ConnectHandle ConnectPublishObserver(IPublishObserver observer)
         {
             return _host.ConnectPublishObserver(observer);
+        }
+
+        public Task<ISendEndpoint> GetPublishSendEndpoint<T>()
+            where T : class
+        {
+            return _receiveEndpoint.GetPublishSendEndpoint<T>();
         }
 
         public ConnectHandle ConnectSendObserver(ISendObserver observer)

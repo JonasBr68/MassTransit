@@ -55,7 +55,7 @@
         }
 
 
-        struct SendPipe<T> :
+        class SendPipe<T> :
             IPipe<SessionContext>
             where T : class
         {
@@ -83,16 +83,13 @@
 
                 var context = new TransportActiveMqSendContext<T>(_message, _cancellationToken);
 
-                var activity = LogContext.IfEnabled(OperationName.Transport.Send)?.StartActivity(new
-                {
-                    _context.EntityName,
-                    _context.DestinationType
-                });
+                await _pipe.Send(context).ConfigureAwait(false);
+
+                var activity = LogContext.IfEnabled(OperationName.Transport.Send)?.StartSendActivity(context);
                 try
                 {
-                    await _pipe.Send(context).ConfigureAwait(false);
-
-                    activity.AddSendContextHeaders(context);
+                    if (_context.SendObservers.Count > 0)
+                        await _context.SendObservers.PreSend(context).ConfigureAwait(false);
 
                     byte[] body = context.Body;
 
@@ -111,15 +108,12 @@
                         transportMessage.NMSCorrelationID = context.CorrelationId.ToString();
 
                     if (context.TimeToLive.HasValue)
-                        transportMessage.NMSTimeToLive = context.TimeToLive.Value;
+                        transportMessage.NMSTimeToLive = context.TimeToLive > TimeSpan.Zero ? context.TimeToLive.Value : TimeSpan.FromSeconds(1);
 
                     if (context.Priority.HasValue)
                         transportMessage.NMSPriority = context.Priority.Value;
 
                     transportMessage.Content = body;
-
-                    if (_context.SendObservers.Count > 0)
-                        await _context.SendObservers.PreSend(context).ConfigureAwait(false);
 
                     var publishTask = Task.Run(() => producer.Send(transportMessage), context.CancellationToken);
 

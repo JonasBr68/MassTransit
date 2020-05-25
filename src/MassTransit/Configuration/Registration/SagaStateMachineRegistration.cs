@@ -4,7 +4,9 @@ namespace MassTransit.Registration
     using System.Collections.Generic;
     using Automatonymous;
     using Automatonymous.SagaConfigurators;
+    using Context;
     using Definition;
+    using Metadata;
     using Saga;
 
 
@@ -37,16 +39,13 @@ namespace MassTransit.Registration
             ISagaStateMachineFactory stateMachineFactory = configurationServiceProvider.GetRequiredService<ISagaStateMachineFactory>();
             SagaStateMachine<TInstance> stateMachine = stateMachineFactory.CreateStateMachine<TInstance>();
 
-            IStateMachineActivityFactory activityFactory = configurationServiceProvider.GetRequiredService<IStateMachineActivityFactory>();
-
-            void AddStateMachineActivityFactory(ConsumeContext context)
-            {
-                context.GetOrAddPayload(() => activityFactory);
-            }
-
             var repositoryFactory = configurationServiceProvider.GetRequiredService<ISagaRepositoryFactory>();
-            ISagaRepository<TInstance> repository = repositoryFactory.CreateSagaRepository<TInstance>(AddStateMachineActivityFactory);
+            ISagaRepository<TInstance> repository = repositoryFactory.CreateSagaRepository<TInstance>();
             var stateMachineConfigurator = new StateMachineSagaConfigurator<TInstance>(stateMachine, repository, configurator);
+
+            LogContext.Debug?.Log("Configuring endpoint {Endpoint}, Saga: {SagaType}, State Machine: {StateMachineType}",
+                configurator.InputAddress.GetLastPart(),
+                TypeMetadataCache<TInstance>.ShortName, TypeMetadataCache.GetShortName(stateMachine.GetType()));
 
             GetSagaDefinition(configurationServiceProvider)
                 .Configure(configurator, stateMachineConfigurator);
@@ -61,7 +60,7 @@ namespace MassTransit.Registration
 
         ISagaDefinition<TInstance> GetSagaDefinition(IConfigurationServiceProvider provider)
         {
-            return _definition ?? (_definition = provider.GetService<ISagaDefinition<TInstance>>() ?? new DefaultSagaDefinition<TInstance>());
+            return _definition ??= provider.GetService<ISagaDefinition<TInstance>>() ?? new DefaultSagaDefinition<TInstance>();
         }
     }
 }

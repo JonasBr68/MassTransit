@@ -36,15 +36,13 @@
         {
             void ConfigureBusEndpoint(IRabbitMqReceiveEndpointConfigurator configurator)
             {
-                configurator.BindMessageExchanges = false;
+                configurator.ConfigureConsumeTopology = false;
             }
 
             var busReceiveEndpointConfiguration = _busConfiguration.HostConfiguration
                 .CreateReceiveEndpointConfiguration(_settings, _busConfiguration.BusEndpointConfiguration, ConfigureBusEndpoint);
 
             var builder = new ConfigurationBusBuilder(_busConfiguration, busReceiveEndpointConfiguration);
-
-            ApplySpecifications(builder);
 
             return builder.Build();
         }
@@ -126,11 +124,6 @@
         public void SetExchangeArgument(string key, TimeSpan value)
         {
             _settings.SetExchangeArgument(key, value);
-        }
-
-        public RabbitMqEndpointAddress GetEndpointAddress(Uri hostAddress)
-        {
-            return _settings.GetEndpointAddress(hostAddress);
         }
 
         public void EnablePriority(byte maxPriority)

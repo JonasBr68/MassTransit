@@ -2,9 +2,13 @@ namespace MassTransit.AutofacIntegration.Registration
 {
     using System;
     using Autofac;
+    using Autofac.Core;
     using MassTransit.Registration;
+    using Mediator;
+    using Monitoring.Health;
     using ScopeProviders;
     using Scoping;
+    using Transports;
 
 
     public class ContainerBuilderRegistrationConfigurator :
@@ -12,14 +16,22 @@ namespace MassTransit.AutofacIntegration.Registration
         IContainerBuilderConfigurator
     {
         readonly ContainerBuilder _builder;
-        Action<ContainerBuilder, ConsumeContext> _configureScope;
+        readonly AutofacContainerRegistrar _registrar;
 
         public ContainerBuilderRegistrationConfigurator(ContainerBuilder builder)
-            : base(new AutofacContainerRegistrar(builder))
+            : this(builder, new AutofacContainerRegistrar(builder))
+        {
+        }
+
+        ContainerBuilderRegistrationConfigurator(ContainerBuilder builder, AutofacContainerRegistrar registrar)
+            : base(registrar)
         {
             _builder = builder;
+            _registrar = registrar;
 
             ScopeName = "message";
+
+            builder.RegisterType<BusRegistry>().As<IBusRegistry>().SingleInstance();
 
             builder.Register(CreateConsumerScopeProvider)
                 .As<IConsumerScopeProvider>()
@@ -40,24 +52,39 @@ namespace MassTransit.AutofacIntegration.Registration
                 .SingleInstance();
         }
 
-        public string ScopeName { private get; set; }
+        public string ScopeName
+        {
+            private get => _registrar.ScopeName;
+            set => _registrar.ScopeName = value;
+        }
 
         ContainerBuilder IContainerBuilderConfigurator.Builder => _builder;
 
         public Action<ContainerBuilder, ConsumeContext> ConfigureScope
         {
-            set => _configureScope = value;
+            get => _registrar.ConfigureScope;
+            set => _registrar.ConfigureScope = value;
         }
 
-        public void AddBus(Func<IComponentContext, IBusControl> busFactory)
+        public void AddBus(Func<IRegistrationContext<IComponentContext>, IBusControl> busFactory)
         {
-            IBusControl BusFactory(IComponentContext context)
+            ThrowIfAlreadyConfigured();
+
+            IBusControl BusFactory(IComponentContext componentContext)
             {
-                var provider = context.Resolve<IConfigurationServiceProvider>();
+                var provider = componentContext.Resolve<IConfigurationServiceProvider>();
 
                 ConfigureLogContext(provider);
 
+                IRegistrationContext<IComponentContext> context = GetRegistrationContext(componentContext);
+
                 return busFactory(context);
+            }
+
+            if (_builder.ComponentRegistryBuilder.IsRegistered(new TypedService(typeof(IBusControl))))
+            {
+                throw new ConfigurationException(
+                    "AddBus() was already called. To configure multiple bus instances, refer to the documentation: https://masstransit-project.com/usage/containers/multibus.html");
             }
 
             _builder.Register(BusFactory)
@@ -73,7 +100,40 @@ namespace MassTransit.AutofacIntegration.Registration
                 .As<IPublishEndpoint>()
                 .InstancePerLifetimeScope();
 
-            _builder.Register(context => context.Resolve<IBus>().CreateClientFactory())
+            _builder.Register(context => ClientFactoryProvider(context.Resolve<IConfigurationServiceProvider>(), context.Resolve<IBus>()))
+                .As<IClientFactory>()
+                .SingleInstance();
+
+            _builder.Register(context => new BusHealth(nameof(IBus)))
+                .As<BusHealth>()
+                .As<IBusHealth>()
+                .SingleInstance();
+
+            _builder.RegisterType<BusRegistryInstance>()
+                .As<IBusRegistryInstance>()
+                .SingleInstance();
+        }
+
+        public void AddMediator(Action<IComponentContext, IReceiveEndpointConfigurator> configure = null)
+        {
+            ThrowIfAlreadyConfigured();
+
+            IMediator MediatorFactory(IComponentContext context)
+            {
+                var provider = context.Resolve<IConfigurationServiceProvider>();
+
+                ConfigureLogContext(provider);
+
+                return Bus.Factory.CreateMediator(cfg =>
+                {
+                    configure?.Invoke(context, cfg);
+
+                    ConfigureMediator(cfg, provider);
+                });
+            }
+
+            _builder.Register(MediatorFactory)
+                .As<IMediator>()
                 .As<IClientFactory>()
                 .SingleInstance();
         }
@@ -82,14 +142,14 @@ namespace MassTransit.AutofacIntegration.Registration
         {
             var lifetimeScopeProvider = new SingleLifetimeScopeProvider(context.Resolve<ILifetimeScope>());
 
-            return new AutofacConsumerScopeProvider(lifetimeScopeProvider, ScopeName, _configureScope);
+            return new AutofacConsumerScopeProvider(lifetimeScopeProvider, ScopeName, ConfigureScope);
         }
 
         ISagaRepositoryFactory CreateSagaRepositoryFactory(IComponentContext context)
         {
             var lifetimeScopeProvider = new SingleLifetimeScopeProvider(context.Resolve<ILifetimeScope>());
 
-            return new AutofacSagaRepositoryFactory(lifetimeScopeProvider, ScopeName, _configureScope);
+            return new AutofacSagaRepositoryFactory(lifetimeScopeProvider, ScopeName, ConfigureScope);
         }
 
         static ISendEndpointProvider GetCurrentSendEndpointProvider(IComponentContext context)
@@ -97,7 +157,7 @@ namespace MassTransit.AutofacIntegration.Registration
             if (context.TryResolve(out ConsumeContext consumeContext))
                 return consumeContext;
 
-            return context.Resolve<IBus>();
+            return new ScopedSendEndpointProvider<ILifetimeScope>(context.Resolve<IBus>(), context.Resolve<ILifetimeScope>());
         }
 
         static IPublishEndpoint GetCurrentPublishEndpoint(IComponentContext context)
@@ -105,7 +165,16 @@ namespace MassTransit.AutofacIntegration.Registration
             if (context.TryResolve(out ConsumeContext consumeContext))
                 return consumeContext;
 
-            return context.Resolve<IBus>();
+            return new PublishEndpoint(new ScopedPublishEndpointProvider<ILifetimeScope>(context.Resolve<IBus>(), context.Resolve<ILifetimeScope>()));
+        }
+
+        IRegistrationContext<IComponentContext> GetRegistrationContext(IComponentContext context)
+        {
+            return new RegistrationContext<IComponentContext>(
+                CreateRegistration(context.Resolve<IConfigurationServiceProvider>()),
+                context.Resolve<BusHealth>(),
+                context
+            );
         }
     }
 }

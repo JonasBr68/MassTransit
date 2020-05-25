@@ -51,7 +51,7 @@ namespace MassTransit.Transports
 
         ConnectHandle IReceiveObserverConnector.ConnectReceiveObserver(IReceiveObserver observer)
         {
-            return _receiveTransport.ConnectReceiveObserver(observer);
+            return _context.ConnectReceiveObserver(observer);
         }
 
         ConnectHandle IReceiveEndpointObserverConnector.ConnectReceiveEndpointObserver(IReceiveEndpointObserver observer)
@@ -71,26 +71,22 @@ namespace MassTransit.Transports
 
         ConnectHandle IConsumePipeConnector.ConnectConsumePipe<T>(IPipe<ConsumeContext<T>> pipe)
         {
-            IPipe<ConsumeContext<T>> messagePipe = _context.ConsumePipeSpecification.GetMessageSpecification<T>().BuildMessagePipe(pipe);
-
-            return _context.ReceivePipe.ConnectConsumePipe(messagePipe);
+            return _context.ReceivePipe.ConnectConsumePipe(pipe);
         }
 
         ConnectHandle IRequestPipeConnector.ConnectRequestPipe<T>(Guid requestId, IPipe<ConsumeContext<T>> pipe)
         {
-            IPipe<ConsumeContext<T>> messagePipe = _context.ConsumePipeSpecification.GetMessageSpecification<T>().BuildMessagePipe(pipe);
-
-            return _context.ReceivePipe.ConnectRequestPipe(requestId, messagePipe);
+            return _context.ReceivePipe.ConnectRequestPipe(requestId, pipe);
         }
 
         ConnectHandle IPublishObserverConnector.ConnectPublishObserver(IPublishObserver observer)
         {
-            return _receiveTransport.ConnectPublishObserver(observer);
+            return _context.ConnectPublishObserver(observer);
         }
 
         ConnectHandle ISendObserverConnector.ConnectSendObserver(ISendObserver observer)
         {
-            return _receiveTransport.ConnectSendObserver(observer);
+            return _context.ConnectSendObserver(observer);
         }
 
         public Task<ISendEndpoint> GetSendEndpoint(Uri address)
@@ -98,15 +94,10 @@ namespace MassTransit.Transports
             return _context.SendEndpointProvider.GetSendEndpoint(address);
         }
 
-        public IPublishEndpoint CreatePublishEndpoint(Uri sourceAddress, ConsumeContext context = null)
-        {
-            return _context.PublishEndpointProvider.CreatePublishEndpoint(sourceAddress, context);
-        }
-
-        public Task<ISendEndpoint> GetPublishSendEndpoint<T>(T message)
+        public Task<ISendEndpoint> GetPublishSendEndpoint<T>()
             where T : class
         {
-            return _context.PublishEndpointProvider.GetPublishSendEndpoint(message);
+            return _context.PublishEndpointProvider.GetPublishSendEndpoint<T>();
         }
 
 

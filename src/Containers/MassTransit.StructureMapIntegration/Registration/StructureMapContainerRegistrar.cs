@@ -2,6 +2,7 @@ namespace MassTransit.StructureMapIntegration.Registration
 {
     using System;
     using Automatonymous;
+    using Clients;
     using Courier;
     using Definition;
     using MassTransit.Registration;
@@ -40,7 +41,7 @@ namespace MassTransit.StructureMapIntegration.Registration
         {
         }
 
-        public void RegisterStateMachineSaga<TStateMachine, TInstance>()
+        public void RegisterSagaStateMachine<TStateMachine, TInstance>()
             where TStateMachine : class, SagaStateMachine<TInstance>
             where TInstance : class, SagaStateMachineInstance
         {
@@ -49,6 +50,22 @@ namespace MassTransit.StructureMapIntegration.Registration
 
             _expression.For<TStateMachine>().Singleton();
             _expression.For<SagaStateMachine<TInstance>>().Use(provider => provider.GetInstance<TStateMachine>()).Singleton();
+        }
+
+        public void RegisterSagaRepository<TSaga>(Func<IConfigurationServiceProvider, ISagaRepository<TSaga>> repositoryFactory)
+            where TSaga : class, ISaga
+        {
+            _expression.For<ISagaRepository<TSaga>>().Use(provider => repositoryFactory(provider.GetInstance<IConfigurationServiceProvider>())).Singleton();
+        }
+
+        void IContainerRegistrar.RegisterSagaRepository<TSaga, TContext, TConsumeContextFactory, TRepositoryContextFactory>()
+        {
+            _expression.For<ISagaConsumeContextFactory<TContext, TSaga>>().Use<TConsumeContextFactory>();
+            _expression.For<ISagaRepositoryContextFactory<TSaga>>().Use<TRepositoryContextFactory>();
+
+            _expression.ForConcreteType<StructureMapSagaRepositoryContextFactory<TSaga>>();
+            _expression.For<ISagaRepository<TSaga>>()
+                .Use(context => new SagaRepository<TSaga>(context.GetInstance<StructureMapSagaRepositoryContextFactory<TSaga>>())).Singleton();
         }
 
         public void RegisterSagaDefinition<TDefinition, TSaga>()
@@ -67,6 +84,16 @@ namespace MassTransit.StructureMapIntegration.Registration
 
             _expression.For<IExecuteActivityScopeProvider<TActivity, TArguments>>()
                 .Use(context => CreateExecuteActivityScopeProvider<TActivity, TArguments>(context));
+        }
+
+        public void RegisterCompensateActivity<TActivity, TLog>()
+            where TActivity : class, ICompensateActivity<TLog>
+            where TLog : class
+        {
+            _expression.ForConcreteType<TActivity>();
+
+            _expression.For<ICompensateActivityScopeProvider<TActivity, TLog>>()
+                .Use(context => CreateCompensateActivityScopeProvider<TActivity, TLog>(context));
         }
 
         public void RegisterActivityDefinition<TDefinition, TActivity, TArguments, TLog>()
@@ -110,36 +137,55 @@ namespace MassTransit.StructureMapIntegration.Registration
             _expression.For<IRequestClient<T>>().Use(context => CreateRequestClient<T>(destinationAddress, timeout, context));
         }
 
-        public void RegisterCompensateActivity<TActivity, TLog>()
-            where TActivity : class, ICompensateActivity<TLog>
-            where TLog : class
+        public void Register<T, TImplementation>()
+            where T : class
+            where TImplementation : class, T
         {
-            _expression.ForConcreteType<TActivity>();
+            _expression.For<T>().Use<TImplementation>();
+        }
 
-            _expression.For<ICompensateActivityScopeProvider<TActivity, TLog>>()
-                .Use(context => CreateCompensateActivityScopeProvider<TActivity, TLog>(context));
+        public void Register<T>(Func<IConfigurationServiceProvider, T> factoryMethod)
+            where T : class
+        {
+            _expression.For<T>().Use(context => factoryMethod(context.GetInstance<IConfigurationServiceProvider>()));
+        }
+
+        public void RegisterSingleInstance<T>(Func<IConfigurationServiceProvider, T> factoryMethod)
+            where T : class
+        {
+            _expression.For<T>().Use(context => factoryMethod(context.GetInstance<IConfigurationServiceProvider>()));
+        }
+
+        public void RegisterSingleInstance<T>(T instance)
+            where T : class
+        {
+            _expression.For<T>().Use(instance).Singleton();
         }
 
         static IRequestClient<T> CreateRequestClient<T>(RequestTimeout timeout, IContext context)
             where T : class
         {
             var clientFactory = context.GetInstance<IClientFactory>();
-
             var consumeContext = context.TryGetInstance<ConsumeContext>();
-            return consumeContext != null
-                ? clientFactory.CreateRequestClient<T>(consumeContext, timeout)
-                : clientFactory.CreateRequestClient<T>(timeout);
+
+            if (consumeContext != null)
+                return clientFactory.CreateRequestClient<T>(consumeContext, timeout);
+
+            return new ClientFactory(new ScopedClientFactoryContext<IContainer>(clientFactory, context.GetInstance<IContainer>()))
+                .CreateRequestClient<T>(timeout);
         }
 
         static IRequestClient<T> CreateRequestClient<T>(Uri destinationAddress, RequestTimeout timeout, IContext context)
             where T : class
         {
             var clientFactory = context.GetInstance<IClientFactory>();
-
             var consumeContext = context.TryGetInstance<ConsumeContext>();
-            return consumeContext != null
-                ? clientFactory.CreateRequestClient<T>(consumeContext, destinationAddress, timeout)
-                : clientFactory.CreateRequestClient<T>(destinationAddress, timeout);
+
+            if (consumeContext != null)
+                return clientFactory.CreateRequestClient<T>(consumeContext, destinationAddress, timeout);
+
+            return new ClientFactory(new ScopedClientFactoryContext<IContainer>(clientFactory, context.GetInstance<IContainer>()))
+                .CreateRequestClient<T>(destinationAddress, timeout);
         }
 
         IExecuteActivityScopeProvider<TActivity, TArguments> CreateExecuteActivityScopeProvider<TActivity, TArguments>(IContext context)

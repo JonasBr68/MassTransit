@@ -1,6 +1,6 @@
 ﻿namespace MassTransit.AmazonSqsTransport.Contexts
 {
-    using Configuration.Configuration;
+    using Configuration;
     using Context;
     using Topology.Builders;
     using Transport;
@@ -23,12 +23,12 @@
 
         protected override ISendTransportProvider CreateSendTransportProvider()
         {
-            return new SendTransportProvider(_host);
+            return new AmazonSqsSendTransportProvider(_host);
         }
 
         protected override IPublishTransportProvider CreatePublishTransportProvider()
         {
-            return new PublishTransportProvider(_host);
+            return new AmazonSqsPublishTransportProvider(_host);
         }
     }
 }

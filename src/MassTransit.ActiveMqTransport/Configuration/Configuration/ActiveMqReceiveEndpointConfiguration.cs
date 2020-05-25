@@ -31,11 +31,9 @@
 
         public ActiveMqReceiveEndpointConfiguration(IActiveMqHostConfiguration hostConfiguration, QueueReceiveSettings settings,
             IActiveMqEndpointConfiguration endpointConfiguration)
-            : base(endpointConfiguration)
+            : base(hostConfiguration, endpointConfiguration)
         {
             _settings = settings;
-
-            BindMessageTopics = true;
 
             _hostConfiguration = hostConfiguration;
             _endpointConfiguration = endpointConfiguration;
@@ -46,7 +44,11 @@
             _inputAddress = new Lazy<Uri>(FormatInputAddress);
         }
 
-        public bool BindMessageTopics { get; set; }
+        public bool BindMessageTopics
+        {
+            set => ConfigureConsumeTopology = value;
+        }
+
         public ReceiveSettings Settings => _settings;
         public override Uri HostAddress => _hostConfiguration.HostAddress;
         public override Uri InputAddress => _inputAddress.Value;
@@ -102,11 +104,13 @@
             if (!ActiveMqEntityNameValidator.Validator.IsValidEntityName(_settings.EntityName))
                 yield return this.Failure(queueName, "must be a valid queue name");
 
-            if (_settings.PurgeOnStartup)
-                yield return this.Warning(queueName, "Existing messages in the queue will be purged on service start");
-
             foreach (var result in base.Validate())
                 yield return result.WithParentKey(queueName);
+        }
+
+        public ushort PrefetchCount
+        {
+            set => _settings.PrefetchCount = value;
         }
 
         public bool Durable
@@ -127,11 +131,6 @@
 
                 Changed("AutoDelete");
             }
-        }
-
-        public bool Lazy
-        {
-            set => _settings.Lazy = value;
         }
 
         public void Bind(string topicName, Action<ITopicBindingConfigurator> configure = null)

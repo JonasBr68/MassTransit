@@ -33,15 +33,13 @@
         {
             void ConfigureBusEndpoint(IActiveMqReceiveEndpointConfigurator configurator)
             {
-                configurator.BindMessageTopics = false;
+                configurator.ConfigureConsumeTopology = false;
             }
 
             var busReceiveEndpointConfiguration = _busConfiguration.HostConfiguration
                 .CreateReceiveEndpointConfiguration(_settings, _busConfiguration.BusEndpointConfiguration, ConfigureBusEndpoint);
 
             var builder = new ConfigurationBusBuilder(_busConfiguration, busReceiveEndpointConfiguration);
-
-            ApplySpecifications(builder);
 
             return builder.Build();
         }
@@ -55,6 +53,11 @@
                 yield return this.Failure("Bus", "The bus queue name must not be null or empty");
         }
 
+        public ushort PrefetchCount
+        {
+            set => _settings.PrefetchCount = value;
+        }
+
         public bool Durable
         {
             set => _settings.Durable = value;
@@ -63,11 +66,6 @@
         public bool AutoDelete
         {
             set => _settings.AutoDelete = value;
-        }
-
-        public bool Lazy
-        {
-            set => _settings.Lazy = value;
         }
 
         public bool DeployTopologyOnly

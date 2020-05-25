@@ -12,8 +12,7 @@
 
 
     public class ActiveMqReceiveEndpointBuilder :
-        ReceiveEndpointBuilder,
-        IReceiveEndpointBuilder
+        ReceiveEndpointBuilder
     {
         readonly IActiveMqHostControl _host;
         readonly IActiveMqReceiveEndpointConfiguration _configuration;
@@ -27,7 +26,7 @@
 
         public override ConnectHandle ConnectConsumePipe<T>(IPipe<ConsumeContext<T>> pipe)
         {
-            if (_configuration.BindMessageTopics)
+            if (_configuration.ConfigureConsumeTopology)
             {
                 _configuration.Topology.Consume
                     .GetMessageTopology<T>()

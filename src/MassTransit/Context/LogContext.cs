@@ -16,7 +16,12 @@ namespace MassTransit.Context
         public static EnabledLogger? Trace => Current?.Trace;
         public static EnabledLogger? Warning => Current?.Warning;
 
-        static readonly AsyncLocal<ILogContext> _current = new AsyncLocal<ILogContext>();
+        static readonly AsyncLocal<ILogContext> _current;
+
+        static LogContext()
+        {
+            _current = new AsyncLocal<ILogContext>();
+        }
 
         /// <summary>
         /// Gets or sets the current operation (Activity) for the current thread.  This flows

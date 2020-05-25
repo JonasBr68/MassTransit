@@ -13,8 +13,8 @@
 namespace MassTransit.Containers.Tests.SimpleInjector_Tests
 {
     using Common_Tests;
-    using SimpleInjector;
     using NUnit.Framework;
+    using SimpleInjector;
     using SimpleInjector.Lifestyles;
     using TestFramework.Courier;
 
@@ -36,10 +36,12 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             });
         }
 
-        protected override void ConfigureExecuteActivity(IReceiveEndpointConfigurator endpointConfigurator)
+        [Test]
+        public void Should_be_a_valid_container()
         {
-            endpointConfigurator.ConfigureExecuteActivity(_container, typeof(SetVariableActivity));
+            _container.Verify();
         }
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
     }
 
 
@@ -62,10 +64,13 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             });
         }
 
-        protected override void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator)
+        [Test]
+        public void Should_be_a_valid_container()
         {
-            configurator.ConfigureEndpoints(_container);
+            _container.Verify();
         }
+
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
     }
 
 
@@ -86,11 +91,12 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             });
         }
 
-        protected override void ConfigureActivity(IReceiveEndpointConfigurator executeEndpointConfigurator,
-            IReceiveEndpointConfigurator compensateEndpointConfigurator)
+        [Test]
+        public void Should_be_a_valid_container()
         {
-            executeEndpointConfigurator.ConfigureActivity(compensateEndpointConfigurator, _container, typeof(TestActivity));
+            _container.Verify();
         }
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
     }
 
 
@@ -113,9 +119,11 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             });
         }
 
-        protected override void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator)
+        [Test]
+        public void Should_be_a_valid_container()
         {
-            configurator.ConfigureEndpoints(_container);
+            _container.Verify();
         }
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
     }
 }

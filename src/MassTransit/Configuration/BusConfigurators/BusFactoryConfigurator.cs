@@ -5,7 +5,6 @@
     using System.Linq;
     using System.Net.Mime;
     using Automatonymous;
-    using Builders;
     using Configuration;
     using ConsumeConfigurators;
     using Context;
@@ -25,7 +24,6 @@
         IBusObserverConnector
     {
         readonly IBusConfiguration _busConfiguration;
-        readonly IList<IBusFactorySpecification> _specifications;
 
         protected BusFactoryConfigurator(IBusConfiguration busConfiguration)
         {
@@ -33,13 +31,12 @@
 
             busConfiguration.BusEndpointConfiguration.Consume.Configurator.AutoStart = false;
 
-            _specifications = new List<IBusFactorySpecification>();
-
             if (LogContext.Current == null)
                 LogContext.ConfigureCurrentLogContext();
         }
 
         public IMessageTopologyConfigurator MessageTopology => _busConfiguration.Topology.Message;
+        public IConsumeTopologyConfigurator ConsumeTopology => _busConfiguration.Topology.Consume;
         public ISendTopologyConfigurator SendTopology => _busConfiguration.Topology.Send;
         public IPublishTopologyConfigurator PublishTopology => _busConfiguration.Topology.Publish;
 
@@ -193,23 +190,11 @@
             configureTopology?.Invoke(configurator);
         }
 
-        public void AddBusFactorySpecification(IBusFactorySpecification specification)
-        {
-            _specifications.Add(specification);
-        }
-
         public virtual IEnumerable<ValidationResult> Validate()
         {
-            return _specifications.SelectMany(x => x.Validate())
-                .Concat(_busConfiguration.Validate())
+            return _busConfiguration.Validate()
                 .Concat(_busConfiguration.HostConfiguration.Validate())
                 .Concat(_busConfiguration.BusEndpointConfiguration.Validate());
-        }
-
-        protected void ApplySpecifications(IBusBuilder builder)
-        {
-            foreach (var configurator in _specifications)
-                configurator.Apply(builder);
         }
 
         public void SetMessageSerializer(SerializerFactory serializerFactory)

@@ -1,4 +1,4 @@
-﻿namespace MassTransit.AmazonSqsTransport.Configuration
+﻿namespace MassTransit.AmazonSqsTransport
 {
     using System;
     using GreenPipes;
@@ -15,6 +15,7 @@
         /// If true, creates message consumers for the message types in consumers, handlers, etc.
         /// With AmazonSQS, these are virtual consumers tied to the virtual topics
         /// </summary>
+        [Obsolete("Use ConfigureConsumeTopology instead. In the meantime, this property sets that property as well.")]
         bool SubscribeMessageTopics { set; }
 
         /// <summary>
@@ -29,7 +30,7 @@
         /// </summary>
         /// <param name="topicName">The exchange name</param>
         /// <param name="callback">Configure the exchange and binding</param>
-        void Subscribe(string topicName, Action<ITopicSubscriptionConfigurator> callback);
+        void Subscribe(string topicName, Action<ITopicSubscriptionConfigurator> callback = default);
 
         void ConfigureClient(Action<IPipeConfigurator<ClientContext>> configure);
 

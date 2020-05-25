@@ -1,30 +1,28 @@
 // Copyright 2007-2014 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//  
+//
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the 
-// License at 
-// 
-//     http://www.apache.org/licenses/LICENSE-2.0 
-// 
+// this file except in compliance with the License. You may obtain a copy of the
+// License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
 // Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the 
+// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 namespace MassTransit.Tests.Serialization
 {
     using System;
     using System.Diagnostics;
     using System.IO;
-    using MassTransit.Pipeline;
+    using Context;
     using MassTransit.Serialization;
-    using MassTransit.Transports;
-    using MassTransit.Transports.InMemory;
     using MassTransit.Transports.InMemory.Contexts;
     using MassTransit.Transports.InMemory.Fabric;
     using Messages;
     using Metadata;
     using NUnit.Framework;
-    using Util;
+    using TestFramework;
 
 
     [TestFixture(typeof(JsonMessageSerializer))]
@@ -58,8 +56,7 @@ namespace MassTransit.Tests.Serialization
         {
             ConsumeContext consumeContext = Deserializer.Deserialize(receiveContext);
 
-            ConsumeContext<T> messageContext;
-            consumeContext.TryGetMessage(out messageContext);
+            consumeContext.TryGetMessage(out ConsumeContext<T> messageContext);
 
             return messageContext;
         }
@@ -81,7 +78,7 @@ namespace MassTransit.Tests.Serialization
                 DoubleValue = 1823.172,
             };
 
-            var sendContext = new InMemorySendContext<SerializationTestMessage>(message);
+            var sendContext = new MessageSendContext<SerializationTestMessage>(message);
             ReceiveContext receiveContext = null;
             //warm it up
             for (int i = 0; i < 10; i++)
@@ -89,7 +86,7 @@ namespace MassTransit.Tests.Serialization
                 byte[] data = Serialize(sendContext);
 
                 var transportMessage = new InMemoryTransportMessage(Guid.NewGuid(), data, Serializer.ContentType.MediaType, TypeMetadataCache<SerializationTestMessage>.ShortName);
-                receiveContext = new InMemoryReceiveContext(new Uri("loopback://localhost/input_queue"), transportMessage, null);
+                receiveContext = new InMemoryReceiveContext(transportMessage, TestConsumeContext.GetContext());
 
                 Deserialize<SerializationTestMessage>(receiveContext);
             }

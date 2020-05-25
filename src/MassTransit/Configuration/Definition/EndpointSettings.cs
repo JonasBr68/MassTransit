@@ -4,6 +4,11 @@ namespace MassTransit.Definition
         IEndpointSettings<T>
         where T : class
     {
+        public EndpointSettings()
+        {
+            ConfigureConsumeTopology = true;
+        }
+
         public string Name { get; set; }
 
         public bool IsTemporary { get; set; }
@@ -11,5 +16,7 @@ namespace MassTransit.Definition
         public int? PrefetchCount { get; set; }
 
         public int? ConcurrentMessageLimit { get; set; }
+
+        public bool ConfigureConsumeTopology { get; set; }
     }
 }

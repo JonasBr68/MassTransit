@@ -1,4 +1,4 @@
-﻿namespace MassTransit.AmazonSqsTransport.Configuration.Configuration
+﻿namespace MassTransit.AmazonSqsTransport.Configuration
 {
     using System;
     using MassTransit.Configuration;
@@ -17,6 +17,13 @@
         bool DeployTopologyOnly { get; set; }
 
         IAmazonSqsHost Proxy { get; }
+
+        /// <summary>
+        /// Apply the endpoint definition to the receive endpoint configurator
+        /// </summary>
+        /// <param name="configurator"></param>
+        /// <param name="definition"></param>
+        void ApplyEndpointDefinition(IAmazonSqsReceiveEndpointConfigurator configurator, IEndpointDefinition definition);
 
         /// <summary>
         /// Create a receive endpoint configuration using the specified host

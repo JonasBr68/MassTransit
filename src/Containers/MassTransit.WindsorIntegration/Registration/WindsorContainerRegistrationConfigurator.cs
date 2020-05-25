@@ -2,12 +2,14 @@ namespace MassTransit.WindsorIntegration.Registration
 {
     using System;
     using Castle.MicroKernel;
-    using Castle.MicroKernel.Lifestyle.Scoped;
     using Castle.MicroKernel.Registration;
     using Castle.Windsor;
     using MassTransit.Registration;
+    using Mediator;
+    using Monitoring.Health;
     using ScopeProviders;
     using Scoping;
+    using Transports;
 
 
     public class WindsorContainerRegistrationConfigurator :
@@ -21,9 +23,12 @@ namespace MassTransit.WindsorIntegration.Registration
         {
             _container = container;
 
+            if (!container.Kernel.HasComponent(typeof(IBusRegistry)))
+                container.Register(Component.For<IBusRegistry>().ImplementedBy<BusRegistry>().LifestyleSingleton());
+
+            container.RegisterScopedContextProviderIfNotPresent();
+
             container.Register(
-                Component.For<ScopedConsumeContextProvider>().LifestyleScoped(),
-                Component.For<ConsumeContext>().UsingFactoryMethod(kernel => kernel.Resolve<ScopedConsumeContextProvider>().GetContext()).LifestyleScoped(),
                 Component.For<IConsumerScopeProvider>().ImplementedBy<WindsorConsumerScopeProvider>().LifestyleTransient(),
                 Component.For<IConfigurationServiceProvider>()
                     .ImplementedBy<WindsorConfigurationServiceProvider>()
@@ -42,21 +47,26 @@ namespace MassTransit.WindsorIntegration.Registration
 
         public IWindsorContainer Container => _container;
 
-        public void AddBus(Func<IKernel, IBusControl> busFactory)
+        public void AddBus(Func<IRegistrationContext<IKernel>, IBusControl> busFactory)
         {
+            ThrowIfAlreadyConfigured();
+
             IBusControl BusFactory(IKernel kernel)
             {
                 var provider = kernel.Resolve<IConfigurationServiceProvider>();
 
                 ConfigureLogContext(provider);
 
-                return busFactory(kernel);
+                IRegistrationContext<IKernel> context = GetRegistrationContext(kernel);
+
+                return busFactory(context);
             }
 
             _container.Register(
                 Component.For<IBusControl>()
                     .Forward<IBus>()
-                    .UsingFactoryMethod(BusFactory).LifestyleSingleton(),
+                    .UsingFactoryMethod(BusFactory)
+                    .LifestyleSingleton(),
                 Component.For<ISendEndpointProvider>()
                     .UsingFactoryMethod(GetCurrentSendEndpointProvider)
                     .LifestyleTransient(),
@@ -64,25 +74,62 @@ namespace MassTransit.WindsorIntegration.Registration
                     .UsingFactoryMethod(GetCurrentPublishEndpoint)
                     .LifestyleTransient(),
                 Component.For<IClientFactory>()
-                    .UsingFactoryMethod(kernel => kernel.Resolve<IBus>().CreateClientFactory())
+                    .UsingFactoryMethod(kernel => ClientFactoryProvider(kernel.Resolve<IConfigurationServiceProvider>(), kernel.Resolve<IBus>()))
+                    .LifestyleSingleton(),
+                Component.For<BusHealth>()
+                    .Forward<IBusHealth>()
+                    .UsingFactoryMethod(() => new BusHealth(nameof(IBus)))
+                    .LifestyleSingleton(),
+                Component.For<IBusRegistryInstance>()
+                    .ImplementedBy<BusRegistryInstance>()
                     .LifestyleSingleton()
+            );
+        }
+
+        public void AddMediator(Action<IKernel, IReceiveEndpointConfigurator> configure = null)
+        {
+            ThrowIfAlreadyConfigured();
+
+            IMediator MediatorFactory(IKernel kernel)
+            {
+                var provider = kernel.Resolve<IConfigurationServiceProvider>();
+
+                ConfigureLogContext(provider);
+
+                return Bus.Factory.CreateMediator(cfg =>
+                {
+                    configure?.Invoke(kernel, cfg);
+
+                    ConfigureMediator(cfg, provider);
+                });
+            }
+
+            _container.Register(
+                Component.For<IMediator>()
+                    .Forward<IClientFactory>()
+                    .UsingFactoryMethod(MediatorFactory).LifestyleSingleton()
             );
         }
 
         static ISendEndpointProvider GetCurrentSendEndpointProvider(IKernel context)
         {
-            var currentScope = CallContextLifetimeScope.ObtainCurrentScope();
-            return currentScope != null
-                ? context.Resolve<ConsumeContext>()
-                : (ISendEndpointProvider)context.Resolve<IBus>();
+            return (ISendEndpointProvider)context.GetConsumeContext()
+                ?? new ScopedSendEndpointProvider<IKernel>(context.Resolve<IBus>(), context);
         }
 
         static IPublishEndpoint GetCurrentPublishEndpoint(IKernel context)
         {
-            var currentScope = CallContextLifetimeScope.ObtainCurrentScope();
-            return currentScope != null
-                ? context.Resolve<ConsumeContext>()
-                : (IPublishEndpoint)context.Resolve<IBus>();
+            return (IPublishEndpoint)context.GetConsumeContext()
+                ?? new PublishEndpoint(new ScopedPublishEndpointProvider<IKernel>(context.Resolve<IBus>(), context));
+        }
+
+        IRegistrationContext<IKernel> GetRegistrationContext(IKernel context)
+        {
+            return new RegistrationContext<IKernel>(
+                CreateRegistration(context.Resolve<IConfigurationServiceProvider>()),
+                context.Resolve<BusHealth>(),
+                context
+            );
         }
     }
 }

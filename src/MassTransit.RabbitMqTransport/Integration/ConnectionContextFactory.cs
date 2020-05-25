@@ -2,7 +2,6 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Configuration;
@@ -10,10 +9,12 @@
     using Contexts;
     using GreenPipes;
     using GreenPipes.Agents;
+    using GreenPipes.Internals.Extensions;
     using Policies;
     using RabbitMQ.Client;
     using RabbitMQ.Client.Exceptions;
     using Topology;
+    using Transports;
 
 
     public class ConnectionContextFactory :
@@ -35,6 +36,7 @@
             _connectionRetryPolicy = Retry.CreatePolicy(x =>
             {
                 x.Handle<RabbitMqConnectionException>();
+                x.Ignore<AuthenticationFailureException>();
 
                 x.Exponential(1000, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(3));
             });
@@ -44,7 +46,7 @@
 
         IPipeContextAgent<ConnectionContext> IPipeContextFactory<ConnectionContext>.CreateContext(ISupervisor supervisor)
         {
-            var context = Task.Run(() => CreateConnection(supervisor), supervisor.Stopping);
+            var context = Task.Run(() => CreateConnection(supervisor), supervisor.Stopped);
 
             IPipeContextAgent<ConnectionContext> contextHandle = supervisor.AddContext(context);
 
@@ -70,13 +72,11 @@
             return supervisor.AddActiveContext(context, CreateSharedConnection(context.Context, cancellationToken));
         }
 
-        async Task<ConnectionContext> CreateSharedConnection(Task<ConnectionContext> context, CancellationToken cancellationToken)
+        static async Task<ConnectionContext> CreateSharedConnection(Task<ConnectionContext> context, CancellationToken cancellationToken)
         {
-            var connectionContext = await context.ConfigureAwait(false);
-
-            var sharedConnection = new SharedConnectionContext(connectionContext, cancellationToken);
-
-            return sharedConnection;
+            return context.IsCompletedSuccessfully()
+                ? new SharedConnectionContext(context.Result, cancellationToken)
+                : new SharedConnectionContext(await context.OrCanceled(cancellationToken).ConfigureAwait(false), cancellationToken);
         }
 
         async Task<ConnectionContext> CreateConnection(ISupervisor supervisor)
@@ -89,16 +89,16 @@
                 IConnection connection = null;
                 try
                 {
-                    LogContext.Debug?.Log("Connecting: {Host}", _description);
+                    TransportLogMessages.ConnectHost(_description);
 
-                    if (_configuration.Settings.ClusterMembers?.Any() ?? false)
+                    if (_configuration.Settings.EndpointResolver != null)
                     {
-                        connection = _connectionFactory.Value.CreateConnection(_configuration.Settings.ClusterMembers,
+                        connection = _connectionFactory.Value.CreateConnection(_configuration.Settings.EndpointResolver,
                             _configuration.Settings.ClientProvidedName);
                     }
                     else
                     {
-                        List<string> hostNames = Enumerable.Repeat(_configuration.Settings.Host, 1).ToList();
+                        var hostNames = new List<string>(1) {_configuration.Settings.Host};
 
                         connection = _connectionFactory.Value.CreateConnection(hostNames, _configuration.Settings.ClientProvidedName);
                     }

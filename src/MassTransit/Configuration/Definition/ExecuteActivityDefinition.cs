@@ -3,6 +3,7 @@ namespace MassTransit.Definition
     using System;
     using ConsumeConfigurators;
     using Courier;
+    using Registration;
 
 
     public class ExecuteActivityDefinition<TActivity, TArguments> :
@@ -12,6 +13,12 @@ namespace MassTransit.Definition
     {
         int? _concurrentMessageLimit;
         string _executeEndpointName;
+
+        protected ExecuteActivityDefinition()
+        {
+        }
+
+        public IEndpointDefinition<IExecuteActivity<TArguments>> ExecuteEndpointDefinition { private get; set; }
 
         /// <summary>
         /// Specify the endpoint name (which may be a queue, or a subscription, depending upon the transport) on which the saga
@@ -42,13 +49,26 @@ namespace MassTransit.Definition
 
         string IExecuteActivityDefinition.GetExecuteEndpointName(IEndpointNameFormatter formatter)
         {
-            return !string.IsNullOrWhiteSpace(_executeEndpointName)
-                ? _executeEndpointName
-                : _executeEndpointName = formatter.ExecuteActivity<TActivity, TArguments>();
+            return string.IsNullOrWhiteSpace(_executeEndpointName)
+                ? _executeEndpointName = ExecuteEndpointDefinition?.GetEndpointName(formatter) ?? formatter.ExecuteActivity<TActivity, TArguments>()
+                : _executeEndpointName;
         }
 
         Type IExecuteActivityDefinition.ActivityType => typeof(TActivity);
         Type IExecuteActivityDefinition.ArgumentType => typeof(TArguments);
+
+        /// <summary>
+        /// Configure the execute endpoint
+        /// </summary>
+        /// <param name="configure"></param>
+        protected void ExecuteEndpoint(Action<IExecuteActivityEndpointRegistrationConfigurator<TActivity, TArguments>> configure)
+        {
+            var configurator = new ExecuteActivityEndpointRegistrationConfigurator<TActivity, TArguments>();
+
+            configure?.Invoke(configurator);
+
+            ExecuteEndpointDefinition = new ExecuteActivityEndpointDefinition<TActivity, TArguments>(configurator.Settings);
+        }
 
         protected void ConfigureConcurrencyLimit(Action<Action<IRoutingSlipConfigurator>> callback)
         {

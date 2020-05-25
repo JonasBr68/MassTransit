@@ -2,6 +2,7 @@ namespace MassTransit.Definition
 {
     using System;
     using Courier;
+    using Registration;
 
 
     public class ActivityDefinition<TActivity, TArguments, TLog> :
@@ -12,6 +13,8 @@ namespace MassTransit.Definition
         where TArguments : class
     {
         string _compensateEndpointName;
+
+        public IEndpointDefinition<ICompensateActivity<TLog>> CompensateEndpointDefinition { private get; set; }
 
         /// <summary>
         /// Specify the endpoint name (which may be a queue, or a subscription, depending upon the transport) on which the saga
@@ -33,12 +36,25 @@ namespace MassTransit.Definition
 
         string IActivityDefinition.GetCompensateEndpointName(IEndpointNameFormatter formatter)
         {
-            return !string.IsNullOrWhiteSpace(_compensateEndpointName)
-                ? _compensateEndpointName
-                : _compensateEndpointName = formatter.CompensateActivity<TActivity, TLog>();
+            return string.IsNullOrWhiteSpace(_compensateEndpointName)
+                ? _compensateEndpointName = CompensateEndpointDefinition?.GetEndpointName(formatter) ?? formatter.CompensateActivity<TActivity, TLog>()
+                : _compensateEndpointName;
         }
 
         Type IActivityDefinition.LogType => typeof(TLog);
+
+        /// <summary>
+        /// Configure the compensate endpoint
+        /// </summary>
+        /// <param name="configure"></param>
+        protected void CompensateEndpoint(Action<ICompensateActivityEndpointRegistrationConfigurator<TActivity, TLog>> configure)
+        {
+            var configurator = new CompensateActivityEndpointRegistrationConfigurator<TActivity, TLog>();
+
+            configure?.Invoke(configurator);
+
+            CompensateEndpointDefinition = new CompensateActivityEndpointDefinition<TActivity, TLog>(configurator.Settings);
+        }
 
         /// <summary>
         /// Called when the compensate activity is being configured on the endpoint.

@@ -43,17 +43,13 @@ namespace MassTransit.Containers.Tests.DependencyInjection_Tests
             collection.RegisterInMemorySagaRepository<DiscoveryPingSaga>();
             collection.RegisterInMemorySagaRepository<DiscoveryPingState>();
 
-            _provider = collection.BuildServiceProvider();
+            _provider = collection.BuildServiceProvider(true);
         }
 
         protected override IRequestClient<PingMessage> GetRequestClient()
         {
-            return _provider.GetRequiredService<IRequestClient<PingMessage>>();
+            return _provider.CreateRequestClient<PingMessage>();
         }
-
-        protected override void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator)
-        {
-            configurator.ConfigureEndpoints(_provider);
-        }
+        protected override IRegistration Registration => _provider.GetRequiredService<IRegistration>();
     }
 }

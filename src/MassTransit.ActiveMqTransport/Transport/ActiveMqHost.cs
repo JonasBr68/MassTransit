@@ -73,7 +73,11 @@
         {
             var queueName = definition.GetEndpointName(endpointNameFormatter ?? DefaultEndpointNameFormatter.Instance);
 
-            return ConnectReceiveEndpoint(queueName, x => x.Apply(definition, configureEndpoint));
+            return ConnectReceiveEndpoint(queueName, configurator =>
+            {
+                _hostConfiguration.ApplyEndpointDefinition(configurator, definition);
+                configureEndpoint?.Invoke(configurator);
+            });
         }
 
         public HostReceiveEndpointHandle ConnectReceiveEndpoint(string queueName, Action<IActiveMqReceiveEndpointConfigurator> configure = null)
@@ -101,7 +105,8 @@
 
             var configureTopology = new ConfigureTopologyFilter<SendSettings>(settings, settings.GetBrokerTopology()).ToPipe();
 
-            return CreateSendTransport(sessionContextSupervisor, configureTopology, settings.EntityName, DestinationType.Queue);
+            return CreateSendTransport(sessionContextSupervisor, configureTopology, settings.EntityName,
+                address.Type == ActiveMqEndpointAddress.AddressType.Queue ? DestinationType.Queue : DestinationType.Topic);
         }
 
         public Task<ISendTransport> CreatePublishTransport<T>()

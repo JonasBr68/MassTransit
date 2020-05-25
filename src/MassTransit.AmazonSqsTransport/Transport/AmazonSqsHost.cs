@@ -3,16 +3,17 @@
     using System;
     using System.Threading.Tasks;
     using Configuration;
-    using Configuration.Configuration;
-    using Configurators;
     using Context;
     using Contexts;
     using Definition;
     using Exceptions;
     using GreenPipes;
     using GreenPipes.Agents;
+    using MassTransit.Configurators;
     using Pipeline;
     using Topology;
+    using Topology.Builders;
+    using Topology.Settings;
     using Transports;
 
 
@@ -49,8 +50,7 @@
             {
                 Type = "AmazonSQS",
                 Settings.Region,
-                Settings.AccessKey,
-                Password = new string('*', Settings.SecretKey.Length)
+                Settings.AccessKey
             });
 
             ConnectionContextSupervisor.Probe(context);
@@ -72,7 +72,11 @@
         {
             var queueName = definition.GetEndpointName(endpointNameFormatter ?? DefaultEndpointNameFormatter.Instance);
 
-            return ConnectReceiveEndpoint(queueName, x => x.Apply(definition, configureEndpoint));
+            return ConnectReceiveEndpoint(queueName, configurator =>
+            {
+                _hostConfiguration.ApplyEndpointDefinition(configurator, definition);
+                configureEndpoint?.Invoke(configurator);
+            });
         }
 
         public HostReceiveEndpointHandle ConnectReceiveEndpoint(string queueName, Action<IAmazonSqsReceiveEndpointConfigurator> configure = null)
@@ -94,19 +98,44 @@
         {
             TransportLogMessages.CreateSendTransport(address);
 
-            var settings = _hostTopology.SendTopology.GetSendSettings(address);
+            if (address.Type == AmazonSqsEndpointAddress.AddressType.Queue)
+            {
+                var settings = _hostTopology.SendTopology.GetSendSettings(address);
 
-            var clientContextSupervisor = new AmazonSqsClientContextSupervisor(ConnectionContextSupervisor);
+                var clientContextSupervisor = new AmazonSqsClientContextSupervisor(ConnectionContextSupervisor);
 
-            var configureTopologyPipe = new ConfigureTopologyFilter<SendSettings>(settings, settings.GetBrokerTopology()).ToPipe();
+                var configureTopologyPipe = new ConfigureTopologyFilter<SendSettings>(settings, settings.GetBrokerTopology()).ToPipe();
 
-            var transportContext = new HostSqsSendTransportContext(clientContextSupervisor, configureTopologyPipe, settings.EntityName, SendLogContext,
-                _hostConfiguration.Settings.AllowTransportHeader);
+                var transportContext = new HostSqsSendTransportContext(clientContextSupervisor, configureTopologyPipe, settings.EntityName, SendLogContext,
+                    _hostConfiguration.Settings.AllowTransportHeader);
 
-            var transport = new QueueSendTransport(transportContext);
-            Add(transport);
+                var transport = new QueueSendTransport(transportContext);
+                Add(transport);
 
-            return Task.FromResult<ISendTransport>(transport);
+                return Task.FromResult<ISendTransport>(transport);
+            }
+            else
+            {
+                var settings = new TopicPublishSettings(address);
+
+                var clientContextSupervisor = new AmazonSqsClientContextSupervisor(ConnectionContextSupervisor);
+
+                var builder = new PublishEndpointBrokerTopologyBuilder();
+                var topicHandle = builder.CreateTopic(settings.EntityName, settings.Durable, settings.AutoDelete, settings.TopicAttributes, settings
+                    .TopicSubscriptionAttributes, settings.Tags);
+
+                builder.Topic ??= topicHandle;
+
+                var configureTopologyPipe = new ConfigureTopologyFilter<PublishSettings>(settings, builder.BuildBrokerTopology()).ToPipe();
+
+                var transportContext = new HostSqsSendTransportContext(clientContextSupervisor, configureTopologyPipe, settings.EntityName, SendLogContext,
+                    _hostConfiguration.Settings.AllowTransportHeader);
+
+                var transport = new TopicSendTransport(transportContext);
+                Add(transport);
+
+                return Task.FromResult<ISendTransport>(transport);
+            }
         }
 
         public Task<ISendTransport> CreatePublishTransport<T>()

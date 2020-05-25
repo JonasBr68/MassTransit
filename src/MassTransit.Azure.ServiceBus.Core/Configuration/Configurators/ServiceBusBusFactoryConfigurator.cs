@@ -1,12 +1,13 @@
 ﻿namespace MassTransit.Azure.ServiceBus.Core.Configurators
 {
     using System;
+    using System.Diagnostics;
     using BusConfigurators;
     using Configuration;
     using MassTransit.Builders;
     using Settings;
-    using Topology.Configuration;
-    using Topology.Configuration.Configurators;
+    using Topology;
+    using Topology.Configurators;
 
 
     public class ServiceBusBusFactoryConfigurator :
@@ -27,10 +28,7 @@
 
             var queueName = _busConfiguration.Topology.Consume.CreateTemporaryQueueName("bus");
 
-            _queueConfigurator = new QueueConfigurator(queueName)
-            {
-                AutoDeleteOnIdle = Defaults.TemporaryAutoDeleteOnIdle
-            };
+            _queueConfigurator = new QueueConfigurator(queueName) {AutoDeleteOnIdle = Defaults.TemporaryAutoDeleteOnIdle};
 
             _settings = new ReceiveEndpointSettings(queueName, _queueConfigurator);
         }
@@ -39,15 +37,19 @@
         {
             void ConfigureBusEndpoint(IServiceBusReceiveEndpointConfigurator configurator)
             {
-                configurator.SubscribeMessageTopics = false;
+                configurator.ConfigureConsumeTopology = false;
+            }
+
+            if (Activity.DefaultIdFormat != ActivityIdFormat.Hierarchical)
+            {
+                Activity.DefaultIdFormat = ActivityIdFormat.Hierarchical;
+                Activity.ForceDefaultIdFormat = true;
             }
 
             var busReceiveEndpointConfiguration = _busConfiguration.HostConfiguration
                 .CreateReceiveEndpointConfiguration(_settings, _busConfiguration.BusEndpointConfiguration, ConfigureBusEndpoint);
 
             var builder = new ConfigurationBusBuilder(_busConfiguration, busReceiveEndpointConfiguration);
-
-            ApplySpecifications(builder);
 
             return builder.Build();
         }
@@ -74,12 +76,7 @@
 
         public int MaxConcurrentCalls
         {
-            set
-            {
-                _settings.MaxConcurrentCalls = value;
-                if (_settings.MaxConcurrentCalls > _settings.PrefetchCount)
-                    _settings.PrefetchCount = _settings.MaxConcurrentCalls;
-            }
+            set => _settings.MaxConcurrentCalls = value;
         }
 
         public int PrefetchCount
@@ -90,6 +87,16 @@
         public void OverrideDefaultBusEndpointQueueName(string value)
         {
             _queueConfigurator.Path = value;
+        }
+
+        public void SetNamespaceSeparatorToTilde()
+        {
+            _hostConfiguration.SetNamespaceSeparatorToTilde();
+        }
+
+        public void SetNamespaceSeparatorTo(string separator)
+        {
+            _hostConfiguration.SetNamespaceSeparatorTo(separator);
         }
 
         public bool DeployTopologyOnly

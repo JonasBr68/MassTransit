@@ -3,7 +3,9 @@ namespace MassTransit.Pipeline.Filters
     using System;
     using System.Diagnostics;
     using System.Threading.Tasks;
+    using Context;
     using GreenPipes;
+    using Logging;
     using Metadata;
 
 
@@ -43,12 +45,14 @@ namespace MassTransit.Pipeline.Filters
         [DebuggerNonUserCode]
         async Task IFilter<ConsumeContext<TMessage>>.Send(ConsumeContext<TMessage> context, IPipe<ConsumeContext<TMessage>> next)
         {
+            var activity = LogContext.IfEnabled(OperationName.Consumer.Consume)?.StartConsumerActivity<TConsumer, TMessage>(context);
+
             Stopwatch timer = Stopwatch.StartNew();
             try
             {
                 await Task.Yield();
 
-                await _instancePipe.Send(context.PushConsumer(_instance)).ConfigureAwait(false);
+                await _instancePipe.Send(new ConsumerConsumeContextScope<TConsumer, TMessage>(context, _instance)).ConfigureAwait(false);
 
                 await context.NotifyConsumed(timer.Elapsed, TypeMetadataCache<TConsumer>.ShortName).ConfigureAwait(false);
 
@@ -66,8 +70,11 @@ namespace MassTransit.Pipeline.Filters
             catch (Exception ex)
             {
                 await context.NotifyFaulted(timer.Elapsed, TypeMetadataCache<TConsumer>.ShortName, ex).ConfigureAwait(false);
-
                 throw;
+            }
+            finally
+            {
+                activity?.Stop();
             }
         }
     }

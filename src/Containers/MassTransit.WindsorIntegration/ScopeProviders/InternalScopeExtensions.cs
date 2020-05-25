@@ -26,6 +26,20 @@ namespace MassTransit.WindsorIntegration.ScopeProviders
             return beginScope;
         }
 
+        public static IDisposable CreateNewMessageScope<T>(this IKernel kernel, SendContext<T> sendContext)
+            where T : class
+        {
+            var beginScope = kernel.BeginScope();
+            return beginScope;
+        }
+
+        public static IDisposable CreateNewMessageScope<T>(this IKernel kernel, PublishContext<T> publishContext)
+            where T : class
+        {
+            var beginScope = kernel.BeginScope();
+            return beginScope;
+        }
+
         public static void UpdateScope(this IKernel kernel, ConsumeContext context)
         {
             kernel.Resolve<ScopedConsumeContextProvider>().SetContext(context);
@@ -34,6 +48,19 @@ namespace MassTransit.WindsorIntegration.ScopeProviders
         public static void UpdatePayload(this PipeContext context, IKernel kernel)
         {
             context.AddOrUpdatePayload(() => kernel, existing => kernel);
+        }
+
+        public static T TryResolve<T>(this IKernel kernel)
+            where T : class
+        {
+            return kernel.HasComponent(typeof(T)) ? kernel.Resolve<T>() : default;
+        }
+
+        public static ConsumeContext GetConsumeContext(this IKernel kernel)
+        {
+            return CallContextLifetimeScope.ObtainCurrentScope() != null
+                ? kernel.Resolve<ScopedConsumeContextProvider>().GetContext()
+                : null;
         }
     }
 }

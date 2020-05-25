@@ -8,7 +8,6 @@ namespace MassTransit.Context
     using System.Threading.Tasks;
     using GreenPipes;
     using Metadata;
-    using Serialization;
     using Topology;
     using Transports;
     using Util;
@@ -19,7 +18,6 @@ namespace MassTransit.Context
         ReceiveContext,
         IDisposable
     {
-        static readonly ContentType DefaultContentType = JsonMessageSerializer.JsonContentType;
         readonly CancellationTokenSource _cancellationTokenSource;
         readonly Lazy<ContentType> _contentType;
         readonly Lazy<Headers> _headers;
@@ -29,7 +27,7 @@ namespace MassTransit.Context
         readonly Lazy<ISendEndpointProvider> _sendEndpointProvider;
         readonly ReceiveEndpointContext _receiveEndpointContext;
 
-        protected BaseReceiveContext(Uri inputAddress, bool redelivered, ReceiveEndpointContext receiveEndpointContext, params object[] payloads)
+        protected BaseReceiveContext(bool redelivered, ReceiveEndpointContext receiveEndpointContext, params object[] payloads)
             : base(receiveEndpointContext, payloads)
         {
             _receiveTimer = Stopwatch.StartNew();
@@ -37,7 +35,7 @@ namespace MassTransit.Context
             _cancellationTokenSource = new CancellationTokenSource();
             _receiveEndpointContext = receiveEndpointContext;
 
-            InputAddress = inputAddress;
+            InputAddress = receiveEndpointContext.InputAddress;
             Redelivered = redelivered;
 
             _headers = new Lazy<Headers>(() => new JsonTransportHeaders(HeaderProvider));
@@ -56,7 +54,7 @@ namespace MassTransit.Context
             _cancellationTokenSource.Dispose();
         }
 
-        CancellationToken PipeContext.CancellationToken => _cancellationTokenSource.Token;
+        public override CancellationToken CancellationToken => _cancellationTokenSource.Token;
 
         public bool IsDelivered { get; private set; }
         public bool IsFaulted { get; private set; }
@@ -133,7 +131,7 @@ namespace MassTransit.Context
                     return new ContentType(contentTypeString);
             }
 
-            return DefaultContentType;
+            return default;
         }
 
         public void Cancel()

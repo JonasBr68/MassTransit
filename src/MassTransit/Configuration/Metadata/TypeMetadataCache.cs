@@ -6,6 +6,8 @@
     using System.Linq;
     using System.Reflection;
     using System.Threading;
+    using Automatonymous;
+    using Courier;
     using Definition;
     using Internals.Extensions;
     using Saga;
@@ -13,6 +15,8 @@
 
     public static class TypeMetadataCache
     {
+        static readonly object _typeCacheLock = new object();
+
         static CachedType GetOrAdd(Type type)
         {
             return Cached.Instance.GetOrAdd(type, _ => (CachedType)Activator.CreateInstance(typeof(CachedType<>).MakeGenericType(type)));
@@ -43,6 +47,14 @@
             return GetOrAdd(type).HasConsumerInterfaces;
         }
 
+        public static Type GetImplementationType(Type type)
+        {
+            lock (_typeCacheLock)
+            {
+                return GreenPipes.Internals.Extensions.TypeCache.GetImplementationType(type);
+            }
+        }
+
         /// <summary>
         /// Returns true if the type is a consumer, or a consumer definition
         /// </summary>
@@ -71,6 +83,34 @@
                 || t.HasInterface(typeof(Orchestrates<>))
                 || t.HasInterface(typeof(Observes<,>))
                 || t.HasInterface(typeof(ISagaDefinition<>)));
+        }
+
+        /// <summary>
+        /// Returns true if the type is a state machine or saga definition
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public static bool IsSagaStateMachineOrDefinition(Type type)
+        {
+            Type[] interfaces = type.GetTypeInfo().GetInterfaces();
+
+            return interfaces.Any(t => t.HasInterface(typeof(SagaStateMachine<>))
+                || t.HasInterface(typeof(ISagaDefinition<>)));
+        }
+
+        /// <summary>
+        /// Returns true if the type is an activity
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public static bool IsActivityOrDefinition(Type type)
+        {
+            Type[] interfaces = type.GetTypeInfo().GetInterfaces();
+
+            return interfaces.Any(t => t.HasInterface(typeof(IExecuteActivity<>))
+                || t.HasInterface(typeof(ICompensateActivity<>))
+                || t.HasInterface(typeof(IActivityDefinition<,,>))
+                || t.HasInterface(typeof(IExecuteActivityDefinition<,>)));
         }
 
         public static bool HasSagaInterfaces(Type type)
@@ -131,6 +171,7 @@
         readonly Lazy<bool> _isTemporaryMessageType;
         readonly Lazy<bool> _isValidMessageType;
         readonly Lazy<string[]> _messageTypeNames;
+        readonly Lazy<string> _diagnosticAddress;
         readonly Lazy<Type[]> _messageTypes;
         readonly Lazy<List<PropertyInfo>> _properties;
         readonly string _shortName;
@@ -143,7 +184,7 @@
             _hasSagaInterfaces = new Lazy<bool>(ScanForSagaInterfaces, LazyThreadSafetyMode.PublicationOnly);
             _hasConsumerInterfaces = new Lazy<bool>(() => !_hasSagaInterfaces.Value && ScanForConsumerInterfaces(), LazyThreadSafetyMode.PublicationOnly);
 
-            List<PropertyInfo> PropertyListFactory() =>
+            static List<PropertyInfo> PropertyListFactory() =>
                 typeof(T).GetAllProperties()
                     .GroupBy(x => x.Name)
                     .Select(x => x.Last())
@@ -155,10 +196,12 @@
             _isTemporaryMessageType = new Lazy<bool>(() => CheckIfTemporaryMessageType(typeof(T).GetTypeInfo()));
             _messageTypes = new Lazy<Type[]>(() => GetMessageTypes().ToArray());
             _messageTypeNames = new Lazy<string[]>(() => GetMessageTypeNames().ToArray());
-            _implementationType = new Lazy<Type>(() => GreenPipes.Internals.Extensions.TypeCache.GetImplementationType(typeof(T)));
+            _diagnosticAddress = new Lazy<string>(GetDiagnosticAddress);
+            _implementationType = new Lazy<Type>(() => TypeMetadataCache.GetImplementationType(typeof(T)));
         }
 
         public static string ShortName => Cached.Metadata.Value.ShortName;
+        public static string DiagnosticAddress => Cached.Metadata.Value.DiagnosticAddress;
         public static bool HasSagaInterfaces => Cached.Metadata.Value.HasSagaInterfaces;
         public static bool HasConsumerInterfaces => Cached.Metadata.Value.HasConsumerInterfaces;
         public static IEnumerable<PropertyInfo> Properties => Cached.Metadata.Value.Properties;
@@ -170,6 +213,7 @@
         public static string[] MessageTypeNames => Cached.Metadata.Value.MessageTypeNames;
         bool ITypeMetadataCache<T>.IsTemporaryMessageType => _isTemporaryMessageType.Value;
         string[] ITypeMetadataCache<T>.MessageTypeNames => _messageTypeNames.Value;
+        string ITypeMetadataCache<T>.DiagnosticAddress => _diagnosticAddress.Value;
         IEnumerable<PropertyInfo> ITypeMetadataCache<T>.Properties => _properties.Value;
         bool ITypeMetadataCache<T>.IsValidMessageType => _isValidMessageType.Value;
         string ITypeMetadataCache<T>.InvalidMessageTypeReason => _invalidMessageTypeReason;
@@ -319,6 +363,23 @@
         static IEnumerable<string> GetMessageTypeNames()
         {
             return MessageTypes.Select(MessageUrn.ForTypeString);
+        }
+
+        static string GetDiagnosticAddress()
+        {
+            const string activity = "Activity";
+
+            if (typeof(T).HasInterface<IExecuteActivity>())
+            {
+                var activityName = typeof(T).Name;
+                if (activityName.EndsWith(activity, StringComparison.InvariantCultureIgnoreCase))
+                    activityName = activityName.Substring(0, activityName.Length - activity.Length);
+
+                return activityName;
+            }
+
+            var (type, ns, _) = MessageUrn.ForType<T>();
+            return $"{type}/{ns}";
         }
 
         static bool ScanForConsumerInterfaces()

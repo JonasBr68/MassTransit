@@ -31,16 +31,14 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             _container.Register<IConsumeMessageObserver<InitialRequest>>(GetConsumeObserver<InitialRequest>);
         }
 
+        [Test]
+        public void Should_be_a_valid_container()
+        {
+            _container.Verify();
+        }
+
         protected override IRequestClient<InitialRequest> RequestClient => _container.GetInstance<IRequestClient<InitialRequest>>();
 
-        protected override void ConfigureInitialConsumer(IInMemoryReceiveEndpointConfigurator configurator)
-        {
-            configurator.ConfigureConsumer<InitialConsumer>(_container);
-        }
-
-        protected override void ConfigureSubsequentConsumer(IInMemoryReceiveEndpointConfigurator configurator)
-        {
-            configurator.ConfigureConsumer<SubsequentConsumer>(_container);
-        }
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
     }
 }

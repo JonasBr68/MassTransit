@@ -15,8 +15,7 @@
 
 
     public class ServiceBusReceiveEndpointBuilder :
-        ReceiveEndpointBuilder,
-        IReceiveEndpointBuilder
+        ReceiveEndpointBuilder
     {
         readonly IServiceBusHostControl _host;
         readonly IServiceBusReceiveEndpointConfiguration _configuration;
@@ -30,7 +29,7 @@
 
         public override ConnectHandle ConnectConsumePipe<T>(IPipe<ConsumeContext<T>> pipe)
         {
-            if (_configuration.SubscribeMessageTopics)
+            if (_configuration.ConfigureConsumeTopology)
             {
                 var subscriptionName = GenerateSubscriptionName();
 

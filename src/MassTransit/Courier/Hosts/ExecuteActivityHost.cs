@@ -28,13 +28,7 @@ namespace MassTransit.Courier.Hosts
 
         public async Task Send(ConsumeContext<RoutingSlip> context, IPipe<ConsumeContext<RoutingSlip>> next)
         {
-            var activity = LogContext.IfEnabled(OperationName.Courier.Execute)?.StartActivity(new
-            {
-                ActivityType = TypeMetadataCache<TActivity>.ShortName,
-                ArgumentType = TypeMetadataCache<TArguments>.ShortName
-            });
-
-            activity?.AddBaggage(DiagnosticHeaders.TrackingNumber, context.Message.TrackingNumber);
+            var activity = LogContext.IfEnabled(OperationName.Courier.Execute)?.StartExecuteActivity<TActivity, TArguments>(context);
 
             var timer = Stopwatch.StartNew();
             try
@@ -54,9 +48,12 @@ namespace MassTransit.Courier.Hosts
 
                     await result.Evaluate().ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (Exception exception)
                 {
-                    await executeContext.Faulted(ex).Evaluate().ConfigureAwait(false);
+                    if (executeContext.Result == null || !executeContext.Result.IsFaulted(out var faultException) || faultException != exception)
+                        executeContext.Result = executeContext.Faulted(exception);
+
+                    await executeContext.Result.Evaluate().ConfigureAwait(false);
                 }
 
                 await context.NotifyConsumed(timer.Elapsed, TypeMetadataCache<TActivity>.ShortName).ConfigureAwait(false);

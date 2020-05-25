@@ -2,7 +2,7 @@ namespace MassTransit.ExtensionsDependencyInjectionIntegration.Registration
 {
     using System;
     using Automatonymous;
-    using Courier;
+    using Clients;
     using Definition;
     using MassTransit.Registration;
     using Microsoft.Extensions.DependencyInjection;
@@ -22,27 +22,21 @@ namespace MassTransit.ExtensionsDependencyInjectionIntegration.Registration
             _collection = collection;
         }
 
-        public void RegisterConsumer<T>()
-            where T : class, IConsumer
+        void IContainerRegistrar.RegisterConsumer<T>()
         {
             _collection.AddScoped<T>();
         }
 
-        public void RegisterConsumerDefinition<TDefinition, TConsumer>()
-            where TDefinition : class, IConsumerDefinition<TConsumer>
-            where TConsumer : class, IConsumer
+        void IContainerRegistrar.RegisterConsumerDefinition<TDefinition, TConsumer>()
         {
             _collection.AddTransient<IConsumerDefinition<TConsumer>, TDefinition>();
         }
 
-        public void RegisterSaga<T>()
-            where T : class, ISaga
+        void IContainerRegistrar.RegisterSaga<T>()
         {
         }
 
-        public void RegisterStateMachineSaga<TStateMachine, TInstance>()
-            where TStateMachine : class, SagaStateMachine<TInstance>
-            where TInstance : class, SagaStateMachineInstance
+        void IContainerRegistrar.RegisterSagaStateMachine<TStateMachine, TInstance>()
         {
             _collection.TryAddSingleton<IStateMachineActivityFactory, DependencyInjectionStateMachineActivityFactory>();
             _collection.TryAddSingleton<ISagaStateMachineFactory, DependencyInjectionSagaStateMachineFactory>();
@@ -51,16 +45,32 @@ namespace MassTransit.ExtensionsDependencyInjectionIntegration.Registration
             _collection.AddSingleton<SagaStateMachine<TInstance>>(provider => provider.GetRequiredService<TStateMachine>());
         }
 
-        public void RegisterSagaDefinition<TDefinition, TSaga>()
-            where TDefinition : class, ISagaDefinition<TSaga>
-            where TSaga : class, ISaga
+        void IContainerRegistrar.RegisterSagaRepository<TSaga>(Func<IConfigurationServiceProvider, ISagaRepository<TSaga>> repositoryFactory)
+        {
+            _collection.AddSingleton(provider =>
+            {
+                var configurationServiceProvider = provider.GetRequiredService<IConfigurationServiceProvider>();
+
+                return repositoryFactory(configurationServiceProvider);
+            });
+        }
+
+        void IContainerRegistrar.RegisterSagaRepository<TSaga, TContext, TConsumeContextFactory, TRepositoryContextFactory>()
+        {
+            _collection.AddScoped<ISagaConsumeContextFactory<TContext, TSaga>, TConsumeContextFactory>();
+            _collection.AddScoped<ISagaRepositoryContextFactory<TSaga>, TRepositoryContextFactory>();
+
+            _collection.AddSingleton<DependencyInjectionSagaRepositoryContextFactory<TSaga>>();
+            _collection.AddSingleton<ISagaRepository<TSaga>>(provider =>
+                new SagaRepository<TSaga>(provider.GetRequiredService<DependencyInjectionSagaRepositoryContextFactory<TSaga>>()));
+        }
+
+        void IContainerRegistrar.RegisterSagaDefinition<TDefinition, TSaga>()
         {
             _collection.AddTransient<ISagaDefinition<TSaga>, TDefinition>();
         }
 
-        public void RegisterExecuteActivity<TActivity, TArguments>()
-            where TActivity : class, IExecuteActivity<TArguments>
-            where TArguments : class
+        void IContainerRegistrar.RegisterExecuteActivity<TActivity, TArguments>()
         {
             _collection.TryAddScoped<TActivity>();
 
@@ -68,26 +78,24 @@ namespace MassTransit.ExtensionsDependencyInjectionIntegration.Registration
                 DependencyInjectionExecuteActivityScopeProvider<TActivity, TArguments>>();
         }
 
-        public void RegisterActivityDefinition<TDefinition, TActivity, TArguments, TLog>()
-            where TDefinition : class, IActivityDefinition<TActivity, TArguments, TLog>
-            where TActivity : class, IActivity<TArguments, TLog>
-            where TArguments : class
-            where TLog : class
+        void IContainerRegistrar.RegisterCompensateActivity<TActivity, TLog>()
+        {
+            _collection.TryAddScoped<TActivity>();
+
+            _collection.AddTransient<ICompensateActivityScopeProvider<TActivity, TLog>, DependencyInjectionCompensateActivityScopeProvider<TActivity, TLog>>();
+        }
+
+        void IContainerRegistrar.RegisterActivityDefinition<TDefinition, TActivity, TArguments, TLog>()
         {
             _collection.AddTransient<IActivityDefinition<TActivity, TArguments, TLog>, TDefinition>();
         }
 
-        public void RegisterExecuteActivityDefinition<TDefinition, TActivity, TArguments>()
-            where TDefinition : class, IExecuteActivityDefinition<TActivity, TArguments>
-            where TActivity : class, IExecuteActivity<TArguments>
-            where TArguments : class
+        void IContainerRegistrar.RegisterExecuteActivityDefinition<TDefinition, TActivity, TArguments>()
         {
             _collection.AddTransient<IExecuteActivityDefinition<TActivity, TArguments>, TDefinition>();
         }
 
-        public void RegisterEndpointDefinition<TDefinition, T>(IEndpointSettings<IEndpointDefinition<T>> settings)
-            where TDefinition : class, IEndpointDefinition<T>
-            where T : class
+        void IContainerRegistrar.RegisterEndpointDefinition<TDefinition, T>(IEndpointSettings<IEndpointDefinition<T>> settings)
         {
             _collection.AddTransient<IEndpointDefinition<T>, TDefinition>();
 
@@ -95,55 +103,77 @@ namespace MassTransit.ExtensionsDependencyInjectionIntegration.Registration
                 _collection.AddSingleton(settings);
         }
 
-        public void RegisterRequestClient<T>(RequestTimeout timeout = default)
-            where T : class
+        void IContainerRegistrar.RegisterRequestClient<T>(RequestTimeout timeout)
         {
-            _collection.AddSingleton(provider =>
+            _collection.AddScoped(provider =>
             {
-                var clientFactory = provider.GetRequiredService<IClientFactory>();
+                var clientFactory = GetClientFactory(provider);
+                var consumeContext = provider.GetRequiredService<ScopedConsumeContextProvider>().GetContext();
 
-                return clientFactory.CreateRequestClient<T>(timeout);
-            });
+                if (consumeContext != null)
+                    return clientFactory.CreateRequestClient<T>(consumeContext, timeout);
 
-            _collection.AddScoped(context =>
-            {
-                var clientFactory = context.GetRequiredService<IClientFactory>();
-
-                var consumeContext = context.GetService<ConsumeContext>();
-                return consumeContext != null
-                    ? clientFactory.CreateRequestClient<T>(consumeContext, timeout)
-                    : clientFactory.CreateRequestClient<T>(timeout);
+                return new ClientFactory(new ScopedClientFactoryContext<IServiceProvider>(clientFactory, provider))
+                    .CreateRequestClient<T>(timeout);
             });
         }
 
-        public void RegisterRequestClient<T>(Uri destinationAddress, RequestTimeout timeout = default)
-            where T : class
+        void IContainerRegistrar.RegisterRequestClient<T>(Uri destinationAddress, RequestTimeout timeout)
         {
-            _collection.AddSingleton(provider =>
+            _collection.AddScoped(provider =>
             {
-                var clientFactory = provider.GetRequiredService<IClientFactory>();
+                var clientFactory = GetClientFactory(provider);
+                var consumeContext = provider.GetRequiredService<ScopedConsumeContextProvider>().GetContext();
 
-                return clientFactory.CreateRequestClient<T>(destinationAddress, timeout);
-            });
+                if (consumeContext != null)
+                    return clientFactory.CreateRequestClient<T>(consumeContext, destinationAddress, timeout);
 
-            _collection.AddScoped(context =>
-            {
-                var clientFactory = context.GetRequiredService<IClientFactory>();
-
-                var consumeContext = context.GetService<ConsumeContext>();
-                return consumeContext != null
-                    ? clientFactory.CreateRequestClient<T>(consumeContext, destinationAddress, timeout)
-                    : clientFactory.CreateRequestClient<T>(destinationAddress, timeout);
+                return new ClientFactory(new ScopedClientFactoryContext<IServiceProvider>(clientFactory, provider))
+                    .CreateRequestClient<T>(destinationAddress, timeout);
             });
         }
 
-        public void RegisterCompensateActivity<TActivity, TLog>()
-            where TActivity : class, ICompensateActivity<TLog>
-            where TLog : class
+        public void Register<T, TImplementation>()
+            where T : class
+            where TImplementation : class, T
         {
-            _collection.TryAddScoped<TActivity>();
+            _collection.TryAddScoped<T, TImplementation>();
+        }
 
-            _collection.AddTransient<ICompensateActivityScopeProvider<TActivity, TLog>, DependencyInjectionCompensateActivityScopeProvider<TActivity, TLog>>();
+        public void Register<T>(Func<IConfigurationServiceProvider, T> factoryMethod)
+            where T : class
+        {
+            _collection.TryAddScoped(provider => factoryMethod(provider.GetRequiredService<IConfigurationServiceProvider>()));
+        }
+
+        void IContainerRegistrar.RegisterSingleInstance<T>(Func<IConfigurationServiceProvider, T> factoryMethod)
+        {
+            _collection.TryAddSingleton(provider => factoryMethod(provider.GetRequiredService<IConfigurationServiceProvider>()));
+        }
+
+        void IContainerRegistrar.RegisterSingleInstance<T>(T instance)
+        {
+            _collection.TryAddSingleton(instance);
+        }
+
+        protected virtual IClientFactory GetClientFactory(IServiceProvider provider)
+        {
+            return provider.GetRequiredService<IClientFactory>();
+        }
+    }
+
+
+    public class DependencyInjectionContainerRegistrar<TBus> :
+        DependencyInjectionContainerRegistrar
+    {
+        public DependencyInjectionContainerRegistrar(IServiceCollection collection)
+            : base(collection)
+        {
+        }
+
+        protected override IClientFactory GetClientFactory(IServiceProvider provider)
+        {
+            return provider.GetRequiredService<Bind<TBus, IClientFactory>>().Value;
         }
     }
 }

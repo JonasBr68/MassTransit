@@ -2,9 +2,8 @@
 {
     using System;
     using System.Text;
+    using Configurators;
     using Configuration;
-    using Configuration.Configurators;
-    using Core.Configuration;
     using MassTransit.Topology.Topologies;
     using Metadata;
     using Transports;
@@ -18,13 +17,13 @@
         readonly Uri _hostAddress;
         readonly IMessageNameFormatter _messageNameFormatter;
 
-        public ServiceBusHostTopology(IServiceBusTopologyConfiguration configuration, Uri hostAddress)
+        public ServiceBusHostTopology(IServiceBusTopologyConfiguration configuration, Uri hostAddress, IMessageNameFormatter messageNameFormatter = null)
             : base(configuration)
         {
             _configuration = configuration;
             _hostAddress = hostAddress;
 
-            _messageNameFormatter = new ServiceBusMessageNameFormatter();
+            _messageNameFormatter = messageNameFormatter ?? new ServiceBusMessageNameFormatter(false);
         }
 
         IServiceBusPublishTopology IServiceBusHostTopology.PublishTopology => _configuration.Publish;

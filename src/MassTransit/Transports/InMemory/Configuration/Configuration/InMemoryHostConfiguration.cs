@@ -19,6 +19,7 @@
         Uri _hostAddress;
 
         public InMemoryHostConfiguration(IInMemoryBusConfiguration busConfiguration, Uri baseAddress, IInMemoryTopologyConfiguration topologyConfiguration)
+            : base(busConfiguration)
         {
             _busConfiguration = busConfiguration;
             _topologyConfiguration = topologyConfiguration;
@@ -46,6 +47,19 @@
 
         public int TransportConcurrencyLimit { get; set; }
 
+        public void ApplyEndpointDefinition(IInMemoryReceiveEndpointConfigurator configurator, IEndpointDefinition definition)
+        {
+            int? concurrencyLimit = definition.PrefetchCount;
+
+            if (definition.ConcurrentMessageLimit.HasValue)
+                concurrencyLimit = definition.ConcurrentMessageLimit;
+
+            if (concurrencyLimit.HasValue)
+                configurator.ConcurrencyLimit = concurrencyLimit.Value;
+
+            definition.Configure(configurator);
+        }
+
         public IInMemoryReceiveEndpointConfiguration CreateReceiveEndpointConfiguration(string queueName,
             Action<IInMemoryReceiveEndpointConfigurator> configure)
         {
@@ -63,11 +77,6 @@
                 throw new ArgumentException("Value cannot be null or whitespace.", nameof(queueName));
 
             var configuration = new InMemoryReceiveEndpointConfiguration(this, queueName, endpointConfiguration);
-
-            configuration.ConnectConsumerConfigurationObserver(_busConfiguration);
-            configuration.ConnectSagaConfigurationObserver(_busConfiguration);
-            configuration.ConnectHandlerConfigurationObserver(_busConfiguration);
-            configuration.ConnectActivityConfigurationObserver(_busConfiguration);
 
             configure?.Invoke(configuration);
 
@@ -95,7 +104,11 @@
         {
             var queueName = definition.GetEndpointName(endpointNameFormatter ?? DefaultEndpointNameFormatter.Instance);
 
-            ReceiveEndpoint(queueName, x => x.Apply(definition, configureEndpoint));
+            ReceiveEndpoint(queueName, configurator =>
+            {
+                ApplyEndpointDefinition(configurator, definition);
+                configureEndpoint?.Invoke(configurator);
+            });
         }
 
         public void ReceiveEndpoint(string queueName, Action<IInMemoryReceiveEndpointConfigurator> configureEndpoint)

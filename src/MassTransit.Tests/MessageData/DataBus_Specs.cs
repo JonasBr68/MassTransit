@@ -8,6 +8,7 @@
         using System.Text;
         using System.Threading.Tasks;
         using MassTransit.MessageData;
+        using MassTransit.MessageData.Values;
         using MassTransit.Serialization;
         using NUnit.Framework;
         using Shouldly;
@@ -21,7 +22,7 @@
             [Test]
             public async Task Should_load_the_data_from_the_repository()
             {
-                string data = NewId.NextGuid().ToString();
+                string data = new string('*', 10000);
 
                 var message = new SendMessageWithBigData {Body = await _repository.PutString(data)};
 
@@ -35,7 +36,7 @@
             [Test]
             public async Task Should_be_able_to_write_bytes_too()
             {
-                byte[] data = NewId.NextGuid().ToByteArray();
+                byte[] data = new byte[10000];
 
                 var message = new MessageWithByteArrayImpl {Bytes = await _repository.PutBytes(data)};
 
@@ -52,7 +53,7 @@
             string _receivedBody;
             byte[] _receivedBytesArray;
 
-            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
             {
                 string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
@@ -63,13 +64,14 @@
                 _repository = new FileSystemMessageDataRepository(dataDirectory);
 
                 configurator.UseMessageData(_repository);
+            }
 
+            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            {
                 _received = Handler<MessageWithBigData>(configurator, async context =>
                 {
                     _receivedBody = await context.Message.Body.Value;
                 });
-
-                configurator.UseMessageData(_repository);
 
                 _receivedBytes = Handler<MessageWithByteArray>(configurator, async context =>
                 {
@@ -86,7 +88,7 @@
             [Test]
             public async Task Should_load_the_data_from_the_repository()
             {
-                string data = NewId.NextGuid().ToString();
+                string data = new string('*', 10000);
 
                 var message = new SendMessageWithBigData {Body = await _repository.PutString(data)};
 
@@ -100,7 +102,7 @@
             [Test]
             public async Task Should_be_able_to_write_bytes_too()
             {
-                byte[] data = NewId.NextGuid().ToByteArray();
+                byte[] data = new byte[10000];
 
                 var message = new MessageWithByteArrayImpl {Bytes = await _repository.PutBytes(data)};
 
@@ -117,7 +119,7 @@
             string _receivedBody;
             byte[] _receivedBytesArray;
 
-            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
             {
                 string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
@@ -132,13 +134,14 @@
                 _repository = new EncryptedMessageDataRepository(fileRepository, cryptoStreamProvider);
 
                 configurator.UseMessageData(_repository);
+            }
 
+            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            {
                 _received = Handler<MessageWithBigData>(configurator, async context =>
                 {
                     _receivedBody = await context.Message.Body.Value;
                 });
-
-                configurator.UseMessageData(_repository);
 
                 _receivedBytes = Handler<MessageWithByteArray>(configurator, async context =>
                 {
@@ -162,7 +165,7 @@
                     dataAddress = await _messageDataRepository.Put(stream);
                 }
 
-                var message = new SendMessageWithBigData {Body = new ConstantMessageData<string>(dataAddress, data)};
+                var message = new SendMessageWithBigData {Body = new StoredMessageData<string>(dataAddress, data)};
 
                 await InputQueueSendEndpoint.Send(message);
 
@@ -172,16 +175,18 @@
             }
 
             IMessageDataRepository _messageDataRepository;
-
             Task<ConsumeContext<MessageWithBigData>> _received;
             string _receivedBody;
 
-            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
             {
                 _messageDataRepository = new InMemoryMessageDataRepository();
 
                 configurator.UseMessageData(_messageDataRepository);
+            }
 
+            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            {
                 _received = Handler<MessageWithBigData>(configurator, async context =>
                 {
                     _receivedBody = await context.Message.Body.Value;
@@ -207,14 +212,14 @@
 
                 var message = new Message
                 {
-                    Document = new Document() {Body = new ConstantMessageData<byte[]>(dataAddress, buffer)},
+                    Document = new Document() {Body = new StoredMessageData<byte[]>(dataAddress, buffer)},
                     Documents = new IDocument[]
                     {
                         new Document()
                         {
                             Title = "Hello, World",
                             PageCount = 27,
-                            Body = new ConstantMessageData<byte[]>(dataAddress, buffer)
+                            Body = new StoredMessageData<byte[]>(dataAddress, buffer)
                         }
                     },
                     DocumentList = new List<IDocument>()
@@ -223,13 +228,13 @@
                         {
                             Title = "Hello, World",
                             PageCount = 44,
-                            Body = new ConstantMessageData<byte[]>(dataAddress, buffer)
+                            Body = new StoredMessageData<byte[]>(dataAddress, buffer)
                         }
                     },
                     DocumentIndex = new Dictionary<string, IDocument>()
                     {
-                        {"First", new Document {Body = new ConstantMessageData<byte[]>(dataAddress, buffer)}},
-                        {"Second", new Document {Body = new ConstantMessageData<byte[]>(dataAddress, buffer)}},
+                        {"First", new Document {Body = new StoredMessageData<byte[]>(dataAddress, buffer)}},
+                        {"Second", new Document {Body = new StoredMessageData<byte[]>(dataAddress, buffer)}},
                     }
                 };
 
@@ -265,12 +270,15 @@
             MessageData<byte[]> _bodyFirst;
             MessageData<byte[]> _bodySecond;
 
-            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
             {
                 _messageDataRepository = new InMemoryMessageDataRepository();
 
                 configurator.UseMessageData(_messageDataRepository);
+            }
 
+            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            {
                 _received = Handler<IMessage>(configurator, async context =>
                 {
                     _body = context.Message.Document.Body;
@@ -298,7 +306,7 @@
                     dataAddress = await _messageDataRepository.Put(stream);
                 }
 
-                var message = new MessageWithByteArrayImpl {Bytes = new ConstantMessageData<byte[]>(dataAddress, nextGuid.ToByteArray())};
+                var message = new MessageWithByteArrayImpl {Bytes = new StoredMessageData<byte[]>(dataAddress, nextGuid.ToByteArray())};
 
                 await InputQueueSendEndpoint.Send(message);
 
@@ -313,12 +321,15 @@
             Task<ConsumeContext<MessageWithByteArray>> _received;
             byte[] _receivedBytesArray;
 
-            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
             {
                 _messageDataRepository = new InMemoryMessageDataRepository();
 
                 configurator.UseMessageData(_messageDataRepository);
+            }
 
+            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            {
                 _received = Handler<MessageWithByteArray>(configurator, async context =>
                 {
                     _receivedBytesArray = await context.Message.Bytes.Value;
@@ -338,12 +349,15 @@
 
             IMessageDataRepository _messageDataRepository;
 
-            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
             {
                 _messageDataRepository = new InMemoryMessageDataRepository();
 
                 configurator.UseMessageData(_messageDataRepository);
+            }
 
+            protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
+            {
                 Handled<IHaveNoMessageData>(configurator);
             }
         }

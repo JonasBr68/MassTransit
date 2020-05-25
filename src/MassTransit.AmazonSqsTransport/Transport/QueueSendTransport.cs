@@ -1,8 +1,10 @@
 ﻿namespace MassTransit.AmazonSqsTransport.Transport
 {
     using System;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
+    using Amazon.SQS.Model;
     using Context;
     using Contexts;
     using GreenPipes;
@@ -40,7 +42,7 @@
         }
 
 
-        struct SendPipe<T> :
+        class SendPipe<T> :
             IPipe<ClientContext>
             where T : class
         {
@@ -57,53 +59,51 @@
                 _cancellationToken = cancellationToken;
             }
 
-            public async Task Send(ClientContext clientContext)
+            public async Task Send(ClientContext context)
             {
                 LogContext.SetCurrentIfNull(_context.LogContext);
 
-                await _context.ConfigureTopologyPipe.Send(clientContext).ConfigureAwait(false);
+                await _context.ConfigureTopologyPipe.Send(context).ConfigureAwait(false);
 
-                var context = new TransportAmazonSqsSendContext<T>(_message, _cancellationToken);
+                var sendContext = new TransportAmazonSqsSendContext<T>(_message, _cancellationToken);
 
-                var activity = LogContext.IfEnabled(OperationName.Transport.Send)?.StartActivity(new {_context.EntityName});
+                await _pipe.Send(sendContext).ConfigureAwait(false);
+
+                var activity = LogContext.IfEnabled(OperationName.Transport.Send)?.StartSendActivity(sendContext);
                 try
                 {
-                    await _pipe.Send(context).ConfigureAwait(false);
+                    if (_context.SendObservers.Count > 0)
+                        await _context.SendObservers.PreSend(sendContext).ConfigureAwait(false);
 
-                    activity.AddSendContextHeaders(context);
+                    var message = new SendMessageBatchRequestEntry("", Encoding.UTF8.GetString(sendContext.Body));
 
-                    var request = clientContext.CreateSendRequest(_context.EntityName, context.Body);
+                    _context.SqsSetHeaderAdapter.Set(message.MessageAttributes, sendContext.Headers);
 
-                    _context.SqsSetHeaderAdapter.Set(request.MessageAttributes, context.Headers);
+                    _context.SqsSetHeaderAdapter.Set(message.MessageAttributes, "Content-Type", sendContext.ContentType.MediaType);
+                    _context.SqsSetHeaderAdapter.Set(message.MessageAttributes, nameof(sendContext.CorrelationId), sendContext.CorrelationId);
 
-                    _context.SqsSetHeaderAdapter.Set(request.MessageAttributes, "Content-Type", context.ContentType.MediaType);
-                    _context.SqsSetHeaderAdapter.Set(request.MessageAttributes, nameof(context.CorrelationId), context.CorrelationId);
+                    if (!string.IsNullOrEmpty(sendContext.DeduplicationId))
+                        message.MessageDeduplicationId = sendContext.DeduplicationId;
 
-                    if (!string.IsNullOrEmpty(context.DeduplicationId))
-                        request.MessageDeduplicationId = context.DeduplicationId;
+                    if (!string.IsNullOrEmpty(sendContext.GroupId))
+                        message.MessageGroupId = sendContext.GroupId;
 
-                    if (!string.IsNullOrEmpty(context.GroupId))
-                        request.MessageGroupId = context.GroupId;
+                    if (sendContext.DelaySeconds.HasValue)
+                        message.DelaySeconds = sendContext.DelaySeconds.Value;
 
-                    if (context.DelaySeconds.HasValue)
-                        request.DelaySeconds = context.DelaySeconds.Value;
+                    await context.SendMessage(_context.EntityName, message, sendContext.CancellationToken).ConfigureAwait(false);
+
+                    sendContext.LogSent();
 
                     if (_context.SendObservers.Count > 0)
-                        await _context.SendObservers.PreSend(context).ConfigureAwait(false);
-
-                    await clientContext.SendMessage(request, context.CancellationToken).ConfigureAwait(false);
-
-                    context.LogSent();
-
-                    if (_context.SendObservers.Count > 0)
-                        await _context.SendObservers.PostSend(context).ConfigureAwait(false);
+                        await _context.SendObservers.PostSend(sendContext).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    context.LogFaulted(ex);
+                    sendContext.LogFaulted(ex);
 
                     if (_context.SendObservers.Count > 0)
-                        await _context.SendObservers.SendFault(context, ex).ConfigureAwait(false);
+                        await _context.SendObservers.SendFault(sendContext, ex).ConfigureAwait(false);
 
                     throw;
                 }

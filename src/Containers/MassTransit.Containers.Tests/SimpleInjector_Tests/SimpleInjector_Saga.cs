@@ -3,7 +3,6 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
     using Common_Tests;
     using NUnit.Framework;
     using Saga;
-    using Scenarios;
     using SimpleInjector;
     using SimpleInjector.Lifestyles;
 
@@ -19,13 +18,7 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             _container = new Container();
             _container.Options.DefaultScopedLifestyle = new AsyncScopedLifestyle();
 
-            _container.AddMassTransit(cfg =>
-            {
-                cfg.AddSaga<SimpleSaga>();
-                cfg.AddBus(() => BusControl);
-            });
-
-            _container.Register(typeof(ISagaRepository<>), typeof(InMemorySagaRepository<>), Lifestyle.Singleton);
+            _container.AddMassTransit(ConfigureRegistration);
         }
 
         [OneTimeTearDown]
@@ -34,16 +27,20 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             _container.Dispose();
         }
 
-        protected override void ConfigureSaga(IInMemoryReceiveEndpointConfigurator configurator)
+        [Test]
+        public void Should_be_a_valid_container()
         {
-            configurator.ConfigureSaga<SimpleSaga>(_container);
+            _container.Verify();
         }
+
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
 
         protected override ISagaRepository<T> GetSagaRepository<T>()
         {
             return _container.GetInstance<ISagaRepository<T>>();
         }
     }
+
 
     [TestFixture]
     public class SimpleInjector_Saga_Endpoint :
@@ -56,26 +53,20 @@ namespace MassTransit.Containers.Tests.SimpleInjector_Tests
             _container = new Container();
             _container.Options.DefaultScopedLifestyle = new AsyncScopedLifestyle();
 
-            _container.AddMassTransit(x =>
-            {
-                x.AddSaga<SimpleSaga>()
-                    .Endpoint(e => e.Name = "custom-endpoint-name");
-
-                x.AddBus(() => BusControl);
-            });
-
-            _container.RegisterSingleton<ISagaRepository<SimpleSaga>, InMemorySagaRepository<SimpleSaga>>();
+            _container.AddMassTransit(ConfigureRegistration);
         }
 
-        protected override void ConfigureEndpoints(IInMemoryBusFactoryConfigurator configurator)
+        [Test]
+        public void Should_be_a_valid_container()
         {
-            configurator.ConfigureEndpoints(_container);
+            _container.Verify();
         }
+
+        protected override IRegistration Registration => _container.GetInstance<IRegistration>();
 
         protected override ISagaRepository<T> GetSagaRepository<T>()
         {
             return _container.GetInstance<ISagaRepository<T>>();
         }
     }
-
 }

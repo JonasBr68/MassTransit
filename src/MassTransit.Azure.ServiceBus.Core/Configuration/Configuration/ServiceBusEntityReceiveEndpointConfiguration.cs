@@ -12,7 +12,7 @@
     using MassTransit.Pipeline.Filters;
     using Pipeline;
     using Settings;
-    using Topology.Configuration;
+    using Topology;
     using Transport;
     using Transports;
     using Util;
@@ -25,30 +25,21 @@
         readonly IServiceBusHostConfiguration _hostConfiguration;
         readonly BaseClientSettings _settings;
         protected readonly IBuildPipeConfigurator<ClientContext> ClientPipeConfigurator;
-        protected readonly IBuildPipeConfigurator<MessagingFactoryContext> MessagingFactoryPipeConfigurator;
-        protected readonly IBuildPipeConfigurator<NamespaceContext> NamespacePipeConfigurator;
 
         protected ServiceBusEntityReceiveEndpointConfiguration(IServiceBusHostConfiguration hostConfiguration, BaseClientSettings settings,
             IServiceBusEndpointConfiguration endpointConfiguration)
-            : base(endpointConfiguration)
+            : base(hostConfiguration, endpointConfiguration)
         {
             _hostConfiguration = hostConfiguration;
             _settings = settings;
             _configurator = settings.Configurator;
 
             ClientPipeConfigurator = new PipeConfigurator<ClientContext>();
-            NamespacePipeConfigurator = new PipeConfigurator<NamespaceContext>();
-            MessagingFactoryPipeConfigurator = new PipeConfigurator<MessagingFactoryContext>();
         }
 
         public int MaxConcurrentCalls
         {
-            set
-            {
-                _settings.MaxConcurrentCalls = value;
-                if (_settings.MaxConcurrentCalls > _settings.PrefetchCount)
-                    _settings.PrefetchCount = _settings.MaxConcurrentCalls;
-            }
+            set => _settings.MaxConcurrentCalls = value;
         }
 
         public int PrefetchCount
@@ -124,8 +115,6 @@
         public override IEnumerable<ValidationResult> Validate()
         {
             return ClientPipeConfigurator.Validate()
-                .Concat(NamespacePipeConfigurator.Validate())
-                .Concat(MessagingFactoryPipeConfigurator.Validate())
                 .Concat(ValidateSettings())
                 .Concat(base.Validate());
         }
@@ -153,7 +142,7 @@
             }
             else
             {
-                var messageReceiver = new BrokeredMessageReceiver(InputAddress, receiveEndpointContext);
+                var messageReceiver = new BrokeredMessageReceiver(receiveEndpointContext);
 
                 var errorTransport = CreateErrorTransport(host);
                 var deadLetterTransport = CreateDeadLetterTransport(host);
@@ -172,9 +161,9 @@
 
             IPipe<ClientContext> clientPipe = ClientPipeConfigurator.Build();
 
-            var clientCache = CreateClientCache(host.MessagingFactoryContextSupervisor, host.NamespaceContextSupervisor);
+            var supervisor = CreateClientContextSupervisor(host.ConnectionContextSupervisor);
 
-            var transport = new ReceiveTransport(host, _settings, clientCache, clientPipe, receiveEndpointContext);
+            var transport = new ReceiveTransport(host, _settings, supervisor, clientPipe, receiveEndpointContext);
 
             transport.Add(consumerAgent);
 
@@ -190,28 +179,22 @@
         protected abstract IErrorTransport CreateErrorTransport(IServiceBusHostControl host);
         protected abstract IDeadLetterTransport CreateDeadLetterTransport(IServiceBusHostControl host);
 
-        protected abstract IClientContextSupervisor CreateClientCache(IMessagingFactoryContextSupervisor messagingFactoryContextSupervisor,
-            INamespaceContextSupervisor namespaceContextSupervisor);
-
-        protected virtual IPipeContextFactory<SendEndpointContext> CreateSendEndpointContextFactory(IServiceBusHost host, SendSettings settings,
-            IPipe<NamespaceContext> namespacePipe)
-        {
-            return new QueueSendEndpointContextFactory(host.MessagingFactoryContextSupervisor, host.NamespaceContextSupervisor,
-                Pipe.Empty<MessagingFactoryContext>(), namespacePipe, settings);
-        }
+        protected abstract IClientContextSupervisor CreateClientContextSupervisor(IConnectionContextSupervisor supervisor);
 
         protected ISendEndpointContextSupervisor CreateSendEndpointContextSupervisor(IServiceBusHostControl host, SendSettings settings)
         {
             var brokerTopology = settings.GetBrokerTopology();
 
-            IPipe<NamespaceContext> namespacePipe = new ConfigureTopologyFilter<SendSettings>(settings, brokerTopology, false, host.Stopping).ToPipe();
+            var configureTopologyPipe = new ConfigureTopologyFilter<SendSettings>(settings, brokerTopology, false, host.Stopping)
+                .ToPipe<SendEndpointContext>();
 
-            IPipeContextFactory<SendEndpointContext> factory = CreateSendEndpointContextFactory(host, settings, namespacePipe);
+            var contextFactory = new SendEndpointContextFactory(host.ConnectionContextSupervisor, configureTopologyPipe, settings);
+            var supervisor = new SendEndpointContextSupervisor(contextFactory);
 
-            var cache = new SendEndpointContextSupervisor(factory);
-            host.Add(cache);
+            // TODO this should be owned by the transport
+            host.Add(supervisor);
 
-            return cache;
+            return supervisor;
         }
     }
 }

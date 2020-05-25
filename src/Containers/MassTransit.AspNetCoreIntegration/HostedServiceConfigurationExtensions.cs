@@ -1,11 +1,12 @@
 namespace MassTransit
 {
-    using System;
     using AspNetCoreIntegration;
     using AspNetCoreIntegration.HealthChecks;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Diagnostics.HealthChecks;
     using Microsoft.Extensions.Hosting;
+    using Microsoft.Extensions.Options;
+    using Monitoring.Health;
 
 
     /// <summary>
@@ -14,43 +15,30 @@ namespace MassTransit
     public static class HostedServiceConfigurationExtensions
     {
         /// <summary>
-        /// Uses the health check, in combination with the MassTransit Hosted Service, to monitor the bus
+        /// Adds the MassTransit <see cref="IHostedService"/>, which includes a bus and endpoint health check.
+        /// Use it together with UseHealthCheck to get more detailed diagnostics.
         /// </summary>
-        /// <param name="busConfigurator"></param>
-        /// <param name="provider"></param>
-        public static void UseHealthCheck(this IBusFactoryConfigurator busConfigurator, IServiceProvider provider)
+        /// <param name="services"></param>
+        public static IServiceCollection AddMassTransitHostedService(this IServiceCollection services)
         {
-            var healthCheck = provider.GetRequiredService<BusHealthCheck>();
+            AddHealthChecks(services);
 
-            busConfigurator.ConnectBusObserver(healthCheck);
+            return services.AddSingleton<IHostedService, MassTransitHostedService>();
         }
 
-        /// <summary>
-        /// Adds the MassTransit <see cref="IHostedService"/>, which includes a bus and endpoint health check
-        /// </summary>
-        /// <param name="collection"></param>
-        public static void AddMassTransitHostedService(this IServiceCollection collection)
+        public static IServiceCollection AddMassTransitHostedService(this IServiceCollection services, IBusControl bus)
         {
-            var busCheck = new BusHealthCheck();
-            var receiveEndpointCheck = new ReceiveEndpointHealthCheck();
+            AddHealthChecks(services);
 
-            collection.AddSingleton(busCheck);
-
-            collection.AddHealthChecks()
-                .AddBusHealthCheck("bus", busCheck)
-                .AddBusHealthCheck("endpoint", receiveEndpointCheck);
-
-            collection.AddSingleton<IHostedService>(p =>
-            {
-                var bus = p.GetRequiredService<IBusControl>();
-
-                return new MassTransitHostedService(bus, new SimplifiedBusHealthCheck(), receiveEndpointCheck);
-            });
+            return services.AddSingleton<IHostedService>(p => new BusHostedService(bus));
         }
 
-        static IHealthChecksBuilder AddBusHealthCheck(this IHealthChecksBuilder builder, string suffix, IHealthCheck healthCheck)
+        static void AddHealthChecks(IServiceCollection services)
         {
-            return builder.AddCheck($"masstransit-{suffix}", healthCheck, HealthStatus.Unhealthy, new[] {"ready"});
+            services.AddOptions();
+            services.AddHealthChecks();
+            services.AddSingleton<IConfigureOptions<HealthCheckServiceOptions>>(provider =>
+                new ConfigureBusHealthCheckServiceOptions(provider.GetServices<IBusHealth>(), new[] {"ready"}));
         }
     }
 }

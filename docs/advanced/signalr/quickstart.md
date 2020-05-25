@@ -7,7 +7,7 @@ public void ConfigureServices(IServiceCollection services)
 {
     // other config...
     
-    services.AddSignalR().AddMassTransitBackplane(); // This is the first important line
+    services.AddSignalR();
 
     // Other config perhaps...
 
@@ -15,20 +15,22 @@ public void ConfigureServices(IServiceCollection services)
     services.AddMassTransit(x =>
     {
         // Add this for each Hub you have
-        x.AddSignalRHubConsumers<ChatHub>();
+        x.AddSignalRHub<ChatHub>(cfg => {/*Configure hub lifetime manager*/});
 
-        x.AddBus(provider => Bus.Factory.CreateUsingRabbitMq(cfg =>
+        x.AddBus(context => Bus.Factory.CreateUsingRabbitMq(cfg =>
         {
             var host = cfg.Host("localhost", "/", h =>
             {
                 h.Username("guest");
                 h.Password("guest");
             });
-
-            // Register endpoint for each hub you have
-            cfg.AddSignalRHubEndpoints<ChatHub>(provider);
+          
+            // register consumer' and hub' endpoints
+            cfg.ConfigureEndpoints(context);
         }));
     });
+
+    services.AddMassTransitHostedService();
 }
 ```
 

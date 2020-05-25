@@ -46,9 +46,7 @@ namespace MassTransit.Azure.ServiceBus.Core.Transport
                 x.Interval(5, TimeSpan.FromSeconds(10));
             });
 
-            MessagingFactoryContextSupervisor = new MessagingFactoryContextSupervisor(hostConfiguration);
-
-            NamespaceContextSupervisor = new NamespaceContextSupervisor(hostConfiguration);
+            ConnectionContextSupervisor = new ConnectionContextSupervisor(hostConfiguration);
 
             var cacheSettings = new CacheSettings(SendEndpointCacheDefaults.Capacity, SendEndpointCacheDefaults.MinAge, SendEndpointCacheDefaults.MaxAge);
 
@@ -56,8 +54,7 @@ namespace MassTransit.Azure.ServiceBus.Core.Transport
             _index = cache.AddIndex("key", x => x.Address);
         }
 
-        public IMessagingFactoryContextSupervisor MessagingFactoryContextSupervisor { get; }
-        public INamespaceContextSupervisor NamespaceContextSupervisor { get; }
+        public IConnectionContextSupervisor ConnectionContextSupervisor { get; }
         public IRetryPolicy RetryPolicy { get; }
         public ServiceBusHostSettings Settings => _hostConfiguration.Settings;
         public IServiceBusHostTopology Topology => _hostTopology;
@@ -71,9 +68,7 @@ namespace MassTransit.Azure.ServiceBus.Core.Transport
                 _hostConfiguration.Settings.OperationTimeout
             });
 
-            NamespaceContextSupervisor.Probe(context);
-
-            MessagingFactoryContextSupervisor.Probe(context);
+            ConnectionContextSupervisor.Probe(context);
         }
 
         public override HostReceiveEndpointHandle ConnectReceiveEndpoint(IEndpointDefinition definition, IEndpointNameFormatter endpointNameFormatter,
@@ -92,7 +87,11 @@ namespace MassTransit.Azure.ServiceBus.Core.Transport
         {
             var queueName = definition.GetEndpointName(endpointNameFormatter ?? DefaultEndpointNameFormatter.Instance);
 
-            return ConnectReceiveEndpoint(queueName, x => x.Apply(definition, configureEndpoint));
+            return ConnectReceiveEndpoint(queueName, configurator =>
+            {
+                _hostConfiguration.ApplyEndpointDefinition(configurator, definition);
+                configureEndpoint?.Invoke(configurator);
+            });
         }
 
         public HostReceiveEndpointHandle ConnectReceiveEndpoint(string queueName, Action<IServiceBusReceiveEndpointConfigurator> configure = null)
@@ -151,12 +150,7 @@ namespace MassTransit.Azure.ServiceBus.Core.Transport
 
                 var settings = _hostTopology.SendTopology.GetSendSettings(address);
 
-                var endpointContextSupervisor = CreateQueueSendEndpointContextSupervisor(settings);
-
-                var transportContext = new HostServiceBusSendTransportContext(address, endpointContextSupervisor, SendLogContext);
-
-                var transport = new ServiceBusSendTransport(transportContext);
-                Add(transport);
+                var transport = CreateSendTransport(address, settings);
 
                 return Task.FromResult(new CachedSendTransport(transportAddress, transport));
             }
@@ -169,51 +163,40 @@ namespace MassTransit.Azure.ServiceBus.Core.Transport
         {
             var publishTopology = _hostTopology.Publish<T>();
 
-            if (!publishTopology.TryGetPublishAddress(_hostConfiguration.HostAddress, out Uri publishAddress))
+            if (!publishTopology.TryGetPublishAddress(_hostConfiguration.HostAddress, out var publishAddress))
                 throw new ArgumentException($"The type did not return a valid publish address: {TypeMetadataCache<T>.ShortName}");
 
             var settings = publishTopology.GetSendSettings();
 
-            var endpointContextSupervisor = CreateTopicSendEndpointContextSupervisor(settings);
+            var transport = CreateSendTransport(publishAddress, settings);
 
-            var transportContext = new HostServiceBusSendTransportContext(publishAddress, endpointContextSupervisor, SendLogContext);
+            return Task.FromResult(transport);
+        }
+
+        ISendTransport CreateSendTransport(Uri address, SendSettings settings)
+        {
+            var endpointContextSupervisor = CreateSendEndpointContextSupervisor(settings);
+
+            var transportContext = new HostServiceBusSendTransportContext(address, endpointContextSupervisor, SendLogContext);
 
             var transport = new ServiceBusSendTransport(transportContext);
             Add(transport);
 
-            return Task.FromResult<ISendTransport>(transport);
+            return transport;
         }
 
-        ISendEndpointContextSupervisor CreateQueueSendEndpointContextSupervisor(SendSettings settings)
+        ISendEndpointContextSupervisor CreateSendEndpointContextSupervisor(SendSettings settings)
         {
-            IPipe<NamespaceContext> namespacePipe = CreateConfigureTopologyPipe(settings);
+            var topologyPipe = new ConfigureTopologyFilter<SendSettings>(settings, settings.GetBrokerTopology(), false, Stopping);
 
-            var contextFactory = new QueueSendEndpointContextFactory(MessagingFactoryContextSupervisor, NamespaceContextSupervisor,
-                Pipe.Empty<MessagingFactoryContext>(), namespacePipe, settings);
+            var contextFactory = new SendEndpointContextFactory(ConnectionContextSupervisor, topologyPipe.ToPipe<SendEndpointContext>(), settings);
 
             return new SendEndpointContextSupervisor(contextFactory);
-        }
-
-        ISendEndpointContextSupervisor CreateTopicSendEndpointContextSupervisor(SendSettings settings)
-        {
-            IPipe<NamespaceContext> namespacePipe = CreateConfigureTopologyPipe(settings);
-
-            var contextFactory = new TopicSendEndpointContextFactory(MessagingFactoryContextSupervisor, NamespaceContextSupervisor,
-                Pipe.Empty<MessagingFactoryContext>(), namespacePipe, settings);
-
-            return new SendEndpointContextSupervisor(contextFactory);
-        }
-
-        IPipe<NamespaceContext> CreateConfigureTopologyPipe(SendSettings settings)
-        {
-            var configureTopologyFilter = new ConfigureTopologyFilter<SendSettings>(settings, settings.GetBrokerTopology(), false, Stopping);
-
-            return configureTopologyFilter.ToPipe();
         }
 
         protected override IAgent[] GetAgentHandles()
         {
-            return new IAgent[] {NamespaceContextSupervisor, MessagingFactoryContextSupervisor};
+            return new IAgent[] {ConnectionContextSupervisor};
         }
     }
 }

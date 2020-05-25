@@ -25,7 +25,7 @@ namespace MassTransit.Transports.InMemory
             if (context.TryGetPayload(out InMemoryTransportMessage receivedMessage))
                 messageType = receivedMessage.MessageType;
 
-            var transportMessage = new InMemoryTransportMessage(messageId, body, context.ContentType.MediaType, messageType);
+            var transportMessage = new InMemoryTransportMessage(messageId, body, context.ContentType?.MediaType, messageType);
 
             transportMessage.Headers.SetHostHeaders();
 
@@ -36,7 +36,7 @@ namespace MassTransit.Transports.InMemory
 
         static Guid GetMessageId(ReceiveContext context)
         {
-            return context.TransportHeaders.TryGetHeader("MessageId", out var messageIdValue)
+            return context.TransportHeaders.TryGetHeader(MessageHeaders.MessageId, out var messageIdValue)
                 ? new Guid(messageIdValue.ToString())
                 : NewId.NextGuid();
         }

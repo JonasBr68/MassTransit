@@ -1,24 +1,12 @@
-// Copyright 2007-2015 Chris Patterson, Dru Sellers, Travis Smith, et. al.
-//  
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use
-// this file except in compliance with the License. You may obtain a copy of the 
-// License at 
-// 
-//     http://www.apache.org/licenses/LICENSE-2.0 
-// 
-// Unless required by applicable law or agreed to in writing, software distributed
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the 
-// specific language governing permissions and limitations under the License.
 namespace MassTransit.Context
 {
     using System;
     using System.Collections.Generic;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using GreenPipes;
     using Initializers;
-    using Pipeline.Pipes;
 
 
     public class MessageConsumeContext<TMessage> :
@@ -48,21 +36,33 @@ namespace MassTransit.Context
 
         bool PipeContext.HasPayloadType(Type payloadType)
         {
-            return _context.HasPayloadType(payloadType);
+            return payloadType.GetTypeInfo().IsInstanceOfType(this) || _context.HasPayloadType(payloadType);
         }
 
         bool PipeContext.TryGetPayload<T>(out T payload)
         {
+            if (this is T context)
+            {
+                payload = context;
+                return true;
+            }
+
             return _context.TryGetPayload(out payload);
         }
 
         T PipeContext.GetOrAddPayload<T>(PayloadFactory<T> payloadFactory)
         {
+            if (this is T context)
+                return context;
+
             return _context.GetOrAddPayload(payloadFactory);
         }
 
         T PipeContext.AddOrUpdatePayload<T>(PayloadFactory<T> addFactory, UpdatePayloadFactory<T> updateFactory)
         {
+            if (this is T context)
+                return context;
+
             return _context.AddOrUpdatePayload(addFactory, updateFactory);
         }
 
@@ -217,17 +217,17 @@ namespace MassTransit.Context
 
         Task ConsumeContext.RespondAsync<T>(object values)
         {
-            return RespondAsyncInternal<T>(values, new ResponsePipe<T>(this));
+            return ResponseAsyncWithMessage<T>(values);
         }
 
         Task ConsumeContext.RespondAsync<T>(object values, IPipe<SendContext<T>> sendPipe)
         {
-            return RespondAsyncInternal<T>(values, new ResponsePipe<T>(this, sendPipe));
+            return ResponseAsyncWithMessage(values, sendPipe);
         }
 
         Task ConsumeContext.RespondAsync<T>(object values, IPipe<SendContext> sendPipe)
         {
-            return RespondAsyncInternal<T>(values, new ResponsePipe<T>(this, sendPipe));
+            return ResponseAsyncWithMessage<T>(values, sendPipe);
         }
 
         void ConsumeContext.Respond<T>(T message)
@@ -245,7 +245,11 @@ namespace MassTransit.Context
             return _context.NotifyFaulted(context, duration, consumerType, exception);
         }
 
-        async Task RespondAsyncInternal<T>(object values, IPipe<SendContext<T>> responsePipe)
+        /// <summary>
+        /// Initializes the response with the request message, and then uses the initializer to initialize the
+        /// remaining properties using the <paramref name="values"/> parameter.
+        /// </summary>
+        async Task ResponseAsyncWithMessage<T>(object values, IPipe<SendContext<T>> responsePipe = default)
             where T : class
         {
             if (values == null)
@@ -255,14 +259,12 @@ namespace MassTransit.Context
 
             IMessageInitializer<T> initializer = MessageInitializerCache<T>.GetInitializer(values.GetType());
 
-            if (_context.ResponseAddress != null)
-            {
-                var endpoint = await _context.GetSendEndpoint(_context.ResponseAddress).ConfigureAwait(false);
+            var responseEndpoint = await this.GetResponseEndpoint<T>().ConfigureAwait(false);
 
-                await ConsumeTask(initializer.Send(endpoint, context, values, responsePipe)).ConfigureAwait(false);
-            }
+            if (responsePipe.IsNotEmpty())
+                await ConsumeTask(initializer.Send(responseEndpoint, context, values, responsePipe)).ConfigureAwait(false);
             else
-                await ConsumeTask(initializer.Publish(_context, context, values, responsePipe)).ConfigureAwait(false);
+                await ConsumeTask(initializer.Send(responseEndpoint, context, values)).ConfigureAwait(false);
         }
 
         Task ConsumeTask(Task task)

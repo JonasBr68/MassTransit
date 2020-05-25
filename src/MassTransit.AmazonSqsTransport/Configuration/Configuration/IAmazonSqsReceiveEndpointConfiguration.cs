@@ -1,4 +1,4 @@
-﻿namespace MassTransit.AmazonSqsTransport.Configuration.Configuration
+﻿namespace MassTransit.AmazonSqsTransport.Configuration
 {
     using MassTransit.Configuration;
     using Topology;
@@ -8,8 +8,6 @@
         IReceiveEndpointConfiguration,
         IAmazonSqsEndpointConfiguration
     {
-        bool SubscribeMessageTopics { get; set; }
-
         ReceiveSettings Settings { get; }
 
         void Build(IAmazonSqsHostControl host);
